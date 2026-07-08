@@ -1,6 +1,8 @@
 import { SignalTable } from "@/components/signal-table";
 import { getSignalsByStatus } from "@/lib/dashboard-data";
 
+export const dynamic = "force-dynamic";
+
 export default async function SignalHistoryPage() {
   const signals = await getSignalsByStatus(["SETUP", "ENTRY_HIT", "TARGET1_HIT", "TARGET2_HIT", "CANCELLED", "CLOSED", "HOLD", "NO_MORE_DCA"]);
   return (

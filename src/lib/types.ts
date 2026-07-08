@@ -8,6 +8,7 @@ export interface SystemConfig {
   defaultStakeThb: number;
   maxActiveSignals: number;
   minQuoteVolumeUsdt: number;
+  debugSignal: boolean;
 }
 
 export interface SignalRow {
@@ -35,6 +36,7 @@ export interface SignalRow {
   closed_at: string | null;
   max_drawdown_pct: number;
   max_profit_pct: number;
+  is_debug: number;
 }
 
 export interface SignalEventRow {

@@ -19,7 +19,12 @@ export function getDb() {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: new (filename: string) => SqliteDatabase };
     db = new DatabaseSync(dbPath);
-    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec("PRAGMA busy_timeout = 5000;");
+    try {
+      db.exec("PRAGMA journal_mode = DELETE;");
+    } catch (error) {
+      console.warn("[db] could not switch SQLite journal mode to DELETE", error);
+    }
   }
   return db;
 }
@@ -51,7 +56,8 @@ export function initSchema() {
       cancelled_at TEXT,
       closed_at TEXT,
       max_drawdown_pct REAL DEFAULT 0,
-      max_profit_pct REAL DEFAULT 0
+      max_profit_pct REAL DEFAULT 0,
+      is_debug INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS signal_events (
@@ -106,4 +112,12 @@ export function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_events_signal ON signal_events(signal_id);
     CREATE INDEX IF NOT EXISTS idx_snapshots_pair ON price_snapshots(pair, captured_at);
   `);
+  ensureColumn(database, "signals", "is_debug", "INTEGER NOT NULL DEFAULT 0");
+}
+
+function ensureColumn(database: SqliteDatabase, table: string, column: string, definition: string) {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  }
 }

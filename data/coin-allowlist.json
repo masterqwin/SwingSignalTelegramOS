@@ -2,5 +2,10 @@
   "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "TRX", "LINK", "AVAX",
   "TON", "DOT", "BCH", "LTC", "NEAR", "AAVE", "UNI", "ETC", "ATOM", "FIL",
   "INJ", "OP", "ARB", "SUI", "SEI", "PENDLE", "ZEC", "APT", "HBAR", "ICP",
-  "TIA", "WIF", "JUP", "RENDER", "RUNE", "MKR", "FET", "ALGO", "GRT", "STX"
+  "TIA", "WIF", "JUP", "RENDER", "RUNE", "MKR", "FET", "ALGO", "GRT", "STX",
+  "KAS", "XLM", "VET", "CRO", "BONK", "QNT", "FLOKI", "IMX", "ENA", "WLD",
+  "ONDO", "PYTH", "JASMY", "LDO", "MNT", "WBT", "GT", "OKB", "LEO", "XMR",
+  "PEPE", "SHIB", "MANA", "SAND", "AXS", "CHZ", "EGLD", "FTM", "GALA", "FLOW",
+  "KAVA", "CRV", "COMP", "SNX", "DYDX", "BLUR", "APE", "MINA", "ROSE", "CFX",
+  "KSM", "ZIL", "BAT", "1INCH", "LRC", "ANKR", "QTUM", "DASH", "IOTA", "XTZ"
 ]

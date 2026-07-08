@@ -35,7 +35,10 @@ export function SignalTable({ signals, compact = false }: { signals: SignalRow[]
         <tbody>
           {signals.map((signal) => (
             <tr key={signal.id} className="border-b border-line last:border-0">
-              <td className="py-3 font-semibold">#{signal.signal_id}</td>
+              <td className="py-3 font-semibold">
+                #{signal.signal_id}
+                {signal.is_debug ? <span className="ml-2 rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">DEBUG</span> : null}
+              </td>
               <td className="font-bold">{signal.symbol}/USDT</td>
               <td>
                 <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusClass[signal.status] ?? "bg-slate-100"}`}>{signal.status}</span>

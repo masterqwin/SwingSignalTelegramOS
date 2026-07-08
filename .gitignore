@@ -5,6 +5,7 @@ dist
 .env
 .env.local
 data/*.sqlite
+!data/swing_signal.sqlite
 data/*.sqlite-*
 npm-debug.log*
 yarn-debug.log*

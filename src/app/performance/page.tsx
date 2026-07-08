@@ -1,5 +1,7 @@
 import { getDashboardData } from "@/lib/dashboard-data";
 
+export const dynamic = "force-dynamic";
+
 export default async function PerformancePage() {
   const data = await getDashboardData();
   const rows = [

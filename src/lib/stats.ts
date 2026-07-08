@@ -2,7 +2,7 @@ import { getDb } from "./db";
 import type { SignalRow } from "./types";
 
 export function calculateStats() {
-  const signals = getDb().prepare("SELECT * FROM signals").all() as SignalRow[];
+  const signals = getDb().prepare("SELECT * FROM signals WHERE is_debug = 0").all() as SignalRow[];
   const totalSignals = signals.length;
   const entryHitCount = signals.filter((s) => s.entry_hit_at).length;
   const cancelledCount = signals.filter((s) => s.status === "CANCELLED").length;

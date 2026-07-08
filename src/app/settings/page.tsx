@@ -1,6 +1,8 @@
 import { SettingsPanel } from "@/components/settings-panel";
 import { getSystemConfig } from "@/lib/config";
 
+export const dynamic = "force-dynamic";
+
 export default async function SettingsPage() {
   const config = getSystemConfig();
   return (

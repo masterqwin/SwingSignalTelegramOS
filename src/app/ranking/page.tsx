@@ -1,5 +1,7 @@
 import { getCoinRanking } from "@/lib/dashboard-data";
 
+export const dynamic = "force-dynamic";
+
 export default async function CoinRankingPage() {
   const ranking = await getCoinRanking();
   return (

@@ -7,7 +7,7 @@ export async function getDashboardData() {
   initSchema();
   const config = getSystemConfig();
   const activeSignals = getSignalsByStatus(["SETUP", "ENTRY_HIT", "TARGET1_HIT", "HOLD", "NO_MORE_DCA"]);
-  const activeExposureThb = activeSignals.reduce((sum, signal) => sum + signal.stake_thb, 0);
+  const activeExposureThb = activeSignals.filter((signal) => !signal.is_debug).reduce((sum, signal) => sum + signal.stake_thb, 0);
   return {
     config,
     activeSignals,
@@ -35,14 +35,14 @@ export function getCoinRanking() {
         SUM(CASE WHEN target1_hit_at IS NOT NULL THEN 1 ELSE 0 END) as target1Hits,
         SUM(CASE WHEN target2_hit_at IS NOT NULL THEN 1 ELSE 0 END) as target2Hits,
         AVG(((target2 - entry_high) / entry_high) * 100) as avgReturnPct
-      FROM signals GROUP BY symbol ORDER BY target2Hits DESC, target1Hits DESC, total DESC`
+      FROM signals WHERE is_debug = 0 GROUP BY symbol ORDER BY target2Hits DESC, target1Hits DESC, total DESC`
     )
     .all() as Array<{ symbol: string; total: number; entryHits: number; target1Hits: number; target2Hits: number; avgReturnPct: number }>;
   return rows.map((row) => ({ ...row, winRate: row.total ? (row.target1Hits / row.total) * 100 : 0 }));
 }
 
 function getScoreBuckets() {
-  const signals = getDb().prepare("SELECT score, target1_hit_at FROM signals").all() as Array<{ score: number; target1_hit_at: string | null }>;
+  const signals = getDb().prepare("SELECT score, target1_hit_at FROM signals WHERE is_debug = 0").all() as Array<{ score: number; target1_hit_at: string | null }>;
   return [
     makeBucket("85-89", signals.filter((s) => s.score >= 85 && s.score <= 89)),
     makeBucket("90-94", signals.filter((s) => s.score >= 90 && s.score <= 94)),
