@@ -7,7 +7,9 @@ export async function getDashboardData() {
   initSchema();
   const config = getSystemConfig();
   const activeSignals = getSignalsByStatus(["SETUP", "ENTRY_HIT", "TARGET1_HIT", "HOLD", "NO_MORE_DCA"]);
-  const activeExposureThb = activeSignals.filter((signal) => !signal.is_debug).reduce((sum, signal) => sum + signal.stake_thb, 0);
+  const activeExposureThb = activeSignals
+    .filter((signal) => !signal.is_debug)
+    .reduce((sum, signal) => sum + (signal.total_position_thb || signal.stake_thb), 0);
   return {
     config,
     activeSignals,

@@ -9,6 +9,9 @@ export interface SystemConfig {
   maxActiveSignals: number;
   minQuoteVolumeUsdt: number;
   debugSignal: boolean;
+  maxDcaEntries: number;
+  recoveryDropPct: number;
+  recoveryScoreThreshold: number;
 }
 
 export interface SignalRow {
@@ -37,6 +40,13 @@ export interface SignalRow {
   max_drawdown_pct: number;
   max_profit_pct: number;
   is_debug: number;
+  parent_signal_id: string | null;
+  dca_level: number;
+  average_entry_price: number | null;
+  total_position_usdt: number | null;
+  total_position_thb: number | null;
+  updated_target1: number | null;
+  updated_target2: number | null;
 }
 
 export interface SignalEventRow {
@@ -76,4 +86,20 @@ export interface SignalCandidate {
   score: number;
   riskLevel: string;
   reasonTh: string;
+}
+
+export interface RecoveryPlan {
+  parentSignalId: string;
+  dcaLevel: number;
+  recoveryEntryPrice: number;
+  previousEntryPrice: number;
+  previousPositionUsdt: number;
+  newStakeUsdt: number;
+  newStakeThb: number;
+  averageEntryPrice: number;
+  totalPositionUsdt: number;
+  totalPositionThb: number;
+  updatedTarget1: number;
+  updatedTarget2: number;
+  score: number;
 }

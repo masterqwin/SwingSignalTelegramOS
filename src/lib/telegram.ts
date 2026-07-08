@@ -163,6 +163,47 @@ export function formatSignalMessage(signal: SignalRow, eventType: string, curren
     ].join("\n");
   }
 
+  if (eventType === "RECOVERY_SIGNAL") {
+    const dcaLevel = signal.dca_level || 2;
+    const previousLevel = Math.max(1, dcaLevel - 1);
+    const averageEntryPrice = signal.average_entry_price || entryAverage;
+    const totalPositionUsdt = signal.total_position_usdt || stakeUsdt;
+    const totalPositionThb = signal.total_position_thb || signal.stake_thb;
+    const recoveryEntryPrice = currentPrice;
+    return [
+      `🟡 RECOVERY SIGNAL #${signal.signal_id}`,
+      ...debugLines,
+      `เหรียญ: ${signal.symbol}/USDT`,
+      "สถานะ: ราคาไหลลงถึงโซนช้อน",
+      "",
+      "ไม้เดิม:",
+      `ไม้ ${previousLevel}: entry ${formatPrice(signal.current_price_at_signal)} USDT`,
+      `ทุนเดิม: ${formatUsdt(totalPositionUsdt - stakeUsdt)} USDT / ${formatThb(totalPositionThb - signal.stake_thb)} บาท`,
+      "",
+      "แนะนำไม้ใหม่:",
+      `ไม้ ${dcaLevel}: ตั้ง Buy Limit ${formatPrice(recoveryEntryPrice)} USDT`,
+      `ทุนแนะนำ: ${formatUsdt(stakeUsdt)} USDT / ${formatThb(signal.stake_thb)} บาท`,
+      "",
+      "ต้นทุนเฉลี่ยใหม่:",
+      `${formatPrice(averageEntryPrice)} USDT`,
+      `≈ ${formatThb(averageEntryPrice * signal.usdthb_rate)} บาท`,
+      "",
+      "เป้าขายใหม่:",
+      `ไม้ขาย 1: ${formatPrice(signal.updated_target1 || signal.target1)} USDT จำนวน 50%`,
+      `ไม้ขาย 2: ${formatPrice(signal.updated_target2 || signal.target2)} USDT จำนวน 50%`,
+      "",
+      "เหตุผล:",
+      "✅ ราคาลงถึงโซนช้อน",
+      "✅ Volume ยังผ่าน",
+      "✅ ยังไม่หลุดโครงสร้างใหญ่",
+      "✅ Recovery score ผ่านเกณฑ์",
+      "",
+      "คำสั่ง:",
+      "ถ้าจะช้อน ให้ตั้ง Buy Limit ตามโซนใหม่",
+      "ยกเลิกเป้าขายเดิม แล้วใช้เป้าขายใหม่หลังไม้ Recovery ถูก Fill"
+    ].join("\n");
+  }
+
   if (eventType === "SIGNAL_CLOSED") {
     return [
       `✅ SIGNAL CLOSED #${signal.signal_id}`,

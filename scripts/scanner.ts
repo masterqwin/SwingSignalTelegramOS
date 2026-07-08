@@ -3,8 +3,10 @@ import { getDb, initSchema } from "../src/lib/db";
 import { fetchSpotTickers, tickerPrice } from "../src/lib/gateio";
 import {
   buildCandidate,
+  applyRecoveryPlan,
   canCreateMoreSignals,
   createSignal,
+  buildRecoveryPlan,
   getActiveSignalCount,
   getOpenSignals,
   hasActiveSignal,
@@ -50,14 +52,25 @@ async function scanOnce() {
 
     const currentPrice = tickerPrice(ticker);
     const events = updateSignalLifecycle(signal, currentPrice);
+    let currentSignal = signal;
     if (events.length) {
       const updated = getDb().prepare("SELECT * FROM signals WHERE signal_id = ?").get(signal.signal_id) as SignalRow;
+      currentSignal = updated;
       for (const event of events) {
         const telegram = await recordAndSendEvent(updated, event, currentPrice);
         telegramSent = telegramSent || telegram.ok;
         if (!telegram.ok) console.log(`[scanner] telegram_failed event=${event} #${signal.signal_id} error=${telegram.error}`);
         console.log(`[scanner] lifecycle ${event} #${signal.signal_id}`);
       }
+    }
+
+    const recoveryPlan = buildRecoveryPlan(currentSignal, ticker);
+    if (recoveryPlan) {
+      const recovered = applyRecoveryPlan(currentSignal, recoveryPlan);
+      const telegram = await recordAndSendEvent(recovered, "RECOVERY_SIGNAL", recoveryPlan.recoveryEntryPrice);
+      telegramSent = telegramSent || telegram.ok;
+      if (!telegram.ok) console.log(`[scanner] telegram_failed event=RECOVERY_SIGNAL #${signal.signal_id} error=${telegram.error}`);
+      console.log(`[scanner] recovery #${signal.signal_id} ${signal.pair} dca_level=${recoveryPlan.dcaLevel} score=${recoveryPlan.score}`);
     }
   }
 

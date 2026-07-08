@@ -57,7 +57,14 @@ export function initSchema() {
       closed_at TEXT,
       max_drawdown_pct REAL DEFAULT 0,
       max_profit_pct REAL DEFAULT 0,
-      is_debug INTEGER NOT NULL DEFAULT 0
+      is_debug INTEGER NOT NULL DEFAULT 0,
+      parent_signal_id TEXT,
+      dca_level INTEGER NOT NULL DEFAULT 1,
+      average_entry_price REAL,
+      total_position_usdt REAL,
+      total_position_thb REAL,
+      updated_target1 REAL,
+      updated_target2 REAL
     );
 
     CREATE TABLE IF NOT EXISTS signal_events (
@@ -107,12 +114,41 @@ export function initSchema() {
       avg_time_to_target_hours REAL NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS recovery_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      parent_signal_id TEXT NOT NULL,
+      recovery_signal_id TEXT NOT NULL UNIQUE,
+      pair TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      dca_level INTEGER NOT NULL,
+      recovery_entry_price REAL NOT NULL,
+      previous_entry_price REAL NOT NULL,
+      previous_position_usdt REAL NOT NULL,
+      new_stake_usdt REAL NOT NULL,
+      new_stake_thb REAL NOT NULL,
+      average_entry_price REAL NOT NULL,
+      total_position_usdt REAL NOT NULL,
+      total_position_thb REAL NOT NULL,
+      updated_target1 REAL NOT NULL,
+      updated_target2 REAL NOT NULL,
+      score INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
     CREATE INDEX IF NOT EXISTS idx_signals_pair_status ON signals(pair, status);
     CREATE INDEX IF NOT EXISTS idx_events_signal ON signal_events(signal_id);
     CREATE INDEX IF NOT EXISTS idx_snapshots_pair ON price_snapshots(pair, captured_at);
+    CREATE INDEX IF NOT EXISTS idx_recovery_parent ON recovery_entries(parent_signal_id);
   `);
   ensureColumn(database, "signals", "is_debug", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "signals", "parent_signal_id", "TEXT");
+  ensureColumn(database, "signals", "dca_level", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(database, "signals", "average_entry_price", "REAL");
+  ensureColumn(database, "signals", "total_position_usdt", "REAL");
+  ensureColumn(database, "signals", "total_position_thb", "REAL");
+  ensureColumn(database, "signals", "updated_target1", "REAL");
+  ensureColumn(database, "signals", "updated_target2", "REAL");
 }
 
 function ensureColumn(database: SqliteDatabase, table: string, column: string, definition: string) {

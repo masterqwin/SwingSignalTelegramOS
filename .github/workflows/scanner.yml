@@ -25,6 +25,9 @@ jobs:
       MAX_ACTIVE_SIGNALS: 5
       DEFAULT_STAKE_THB: 20000
       STARTING_CAPITAL_THB: 200000
+      MAX_DCA_ENTRIES: 3
+      RECOVERY_DROP_PCT: 5
+      RECOVERY_SCORE_THRESHOLD: 88
       DATABASE_PATH: ./data/swing_signal.sqlite
       DEBUG_SIGNAL: ${{ vars.DEBUG_SIGNAL || secrets.DEBUG_SIGNAL || 'false' }}
     steps:

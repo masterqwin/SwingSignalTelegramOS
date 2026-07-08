@@ -28,6 +28,7 @@ export function SignalTable({ signals, compact = false }: { signals: SignalRow[]
             <th>Target 1</th>
             <th>Target 2</th>
             <th>Score</th>
+            <th>DCA</th>
             <th>Stake</th>
             {!compact && <th>Created</th>}
           </tr>
@@ -47,7 +48,8 @@ export function SignalTable({ signals, compact = false }: { signals: SignalRow[]
               <td>{signal.target1.toFixed(4)}</td>
               <td>{signal.target2.toFixed(4)}</td>
               <td>{signal.score}/100</td>
-              <td>{signal.stake_thb.toLocaleString("th-TH")} บาท</td>
+              <td>{signal.dca_level && signal.dca_level > 1 ? `ไม้ ${signal.dca_level}` : "-"}</td>
+              <td>{(signal.total_position_thb || signal.stake_thb).toLocaleString("th-TH")} บาท</td>
               {!compact && <td>{new Date(signal.created_at).toLocaleString("th-TH")}</td>}
             </tr>
           ))}

@@ -25,6 +25,9 @@ SIGNAL_EXPIRY_DAYS=3
 STARTING_CAPITAL_THB=200000
 DEFAULT_STAKE_THB=20000
 MAX_ACTIVE_SIGNALS=5
+MAX_DCA_ENTRIES=3
+RECOVERY_DROP_PCT=5
+RECOVERY_SCORE_THRESHOLD=88
 ```
 
 ## Run Dashboard
@@ -307,6 +310,17 @@ USDTHB_RATE
 ```
 
 จากนั้นไปที่ Actions > `SwingSignal Scanner` > `Run workflow` เพื่อตรวจ log ว่า `debug_signal=false`
+
+## Recovery / DCA Rule Lock
+
+- `MAX_ACTIVE_SIGNALS=5` จำกัด active setup หลักสูงสุด 5 เหรียญ และต้องไม่ซ้ำ pair
+- SETUP ใหม่ของ pair เดิมจะถูก skip ถ้ายังมี active setup/entry อยู่
+- Recovery อนุญาตเฉพาะ parent signal ที่เป็น `ENTRY_HIT` แล้วเท่านั้น
+- Recovery ไม่เพิ่ม setup slot ใหม่ แต่เพิ่ม exposure และ `dca_level` ของ parent
+- Recovery จะส่งเมื่อราคาลงถึงโซนช้อนตาม `RECOVERY_DROP_PCT`, volume ยังผ่าน, structure ไม่เสีย, และ score >= `RECOVERY_SCORE_THRESHOLD`
+- จำนวนไม้รวมถูกจำกัดด้วย `MAX_DCA_ENTRIES=3`
+- ถ้ายังเป็นแค่ SETUP และยังไม่ ENTRY_HIT ระบบจะไม่ส่ง Recovery
+- Performance ไม่ถือ Recovery เป็น signal ใหม่แยกจาก parent
 
 ## Architecture
 

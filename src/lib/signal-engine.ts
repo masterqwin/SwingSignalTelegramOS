@@ -1,7 +1,7 @@
 import { getSystemConfig } from "./config";
 import { getDb } from "./db";
 import { fetchCandles, tickerPrice, tickerQuoteVolume } from "./gateio";
-import type { Candle, GateTicker, SignalCandidate, SignalRow } from "./types";
+import type { Candle, GateTicker, RecoveryPlan, SignalCandidate, SignalRow } from "./types";
 
 const ACTIVE_STATUSES = ["SETUP", "ENTRY_HIT", "TARGET1_HIT", "HOLD", "NO_MORE_DCA"];
 
@@ -122,6 +122,118 @@ export function createSignal(candidate: SignalCandidate, options: { isDebug?: bo
 
 export function getSignalById(signalId: string) {
   return getDb().prepare("SELECT * FROM signals WHERE signal_id = ?").get(signalId) as SignalRow;
+}
+
+export function buildRecoveryPlan(signal: SignalRow, ticker: GateTicker): RecoveryPlan | null {
+  const config = getSystemConfig();
+  if (config.debugSignal) return null;
+  if (signal.status !== "ENTRY_HIT") return null;
+  if (signal.is_debug) return null;
+
+  const currentPrice = tickerPrice(ticker);
+  const quoteVolume = tickerQuoteVolume(ticker);
+  const changePct = Number(ticker.change_percentage) || 0;
+  const currentDcaLevel = signal.dca_level || 1;
+  if (currentDcaLevel >= config.maxDcaEntries) return null;
+  if (quoteVolume < config.minQuoteVolumeUsdt) return null;
+  if (changePct < -12) return null;
+
+  const previousEntryPrice = signal.average_entry_price || (signal.entry_low + signal.entry_high) / 2;
+  const recoveryZone = previousEntryPrice * (1 - config.recoveryDropPct / 100);
+  if (currentPrice > recoveryZone) return null;
+
+  const previousPositionUsdt = signal.total_position_usdt || signal.stake_thb / signal.usdthb_rate;
+  const newStakeThb = signal.stake_thb;
+  const newStakeUsdt = newStakeThb / signal.usdthb_rate;
+  const totalPositionUsdt = previousPositionUsdt + newStakeUsdt;
+  const totalPositionThb = totalPositionUsdt * signal.usdthb_rate;
+  const averageEntryPrice = ((previousEntryPrice * previousPositionUsdt) + (currentPrice * newStakeUsdt)) / totalPositionUsdt;
+  const updatedTarget1 = roundPrice(averageEntryPrice * 1.045);
+  const updatedTarget2 = roundPrice(averageEntryPrice * 1.082);
+  const dropScore = currentPrice <= previousEntryPrice * (1 - config.recoveryDropPct / 100) ? 30 : 0;
+  const volumeScore = quoteVolume >= config.minQuoteVolumeUsdt * 1.5 ? 25 : 20;
+  const structureScore = changePct > -8 ? 25 : 15;
+  const dcaRoomScore = currentDcaLevel + 1 <= config.maxDcaEntries ? 20 : 0;
+  const score = Math.min(100, dropScore + volumeScore + structureScore + dcaRoomScore);
+  if (score < config.recoveryScoreThreshold) return null;
+
+  return {
+    parentSignalId: signal.signal_id,
+    dcaLevel: currentDcaLevel + 1,
+    recoveryEntryPrice: roundPrice(currentPrice),
+    previousEntryPrice,
+    previousPositionUsdt,
+    newStakeUsdt,
+    newStakeThb,
+    averageEntryPrice: roundPrice(averageEntryPrice),
+    totalPositionUsdt,
+    totalPositionThb,
+    updatedTarget1,
+    updatedTarget2,
+    score
+  };
+}
+
+export function applyRecoveryPlan(signal: SignalRow, plan: RecoveryPlan) {
+  const now = new Date().toISOString();
+  const recoverySignalId = `${signal.signal_id}-DCA${plan.dcaLevel}`;
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO recovery_entries (
+        parent_signal_id, recovery_signal_id, pair, symbol, created_at, dca_level,
+        recovery_entry_price, previous_entry_price, previous_position_usdt, new_stake_usdt,
+        new_stake_thb, average_entry_price, total_position_usdt, total_position_thb,
+        updated_target1, updated_target2, score
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      signal.signal_id,
+      recoverySignalId,
+      signal.pair,
+      signal.symbol,
+      now,
+      plan.dcaLevel,
+      plan.recoveryEntryPrice,
+      plan.previousEntryPrice,
+      plan.previousPositionUsdt,
+      plan.newStakeUsdt,
+      plan.newStakeThb,
+      plan.averageEntryPrice,
+      plan.totalPositionUsdt,
+      plan.totalPositionThb,
+      plan.updatedTarget1,
+      plan.updatedTarget2,
+      plan.score
+    );
+
+  getDb()
+    .prepare(
+      `UPDATE signals SET
+        parent_signal_id = ?,
+        dca_level = ?,
+        average_entry_price = ?,
+        total_position_usdt = ?,
+        total_position_thb = ?,
+        updated_target1 = ?,
+        updated_target2 = ?,
+        target1 = ?,
+        target2 = ?
+      WHERE signal_id = ?`
+    )
+    .run(
+      signal.signal_id,
+      plan.dcaLevel,
+      plan.averageEntryPrice,
+      plan.totalPositionUsdt,
+      plan.totalPositionThb,
+      plan.updatedTarget1,
+      plan.updatedTarget2,
+      plan.updatedTarget1,
+      plan.updatedTarget2,
+      signal.signal_id
+    );
+
+  return getSignalById(signal.signal_id);
 }
 
 export function recordSnapshot(ticker: GateTicker) {

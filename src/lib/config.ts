@@ -25,7 +25,10 @@ export function getSystemConfig(): SystemConfig {
     defaultStakeThb: num("DEFAULT_STAKE_THB", 20000),
     maxActiveSignals: num("MAX_ACTIVE_SIGNALS", 5),
     minQuoteVolumeUsdt: num("MIN_QUOTE_VOLUME_USDT", 5000000),
-    debugSignal: bool("DEBUG_SIGNAL", false)
+    debugSignal: bool("DEBUG_SIGNAL", false),
+    maxDcaEntries: num("MAX_DCA_ENTRIES", 3),
+    recoveryDropPct: num("RECOVERY_DROP_PCT", 5),
+    recoveryScoreThreshold: num("RECOVERY_SCORE_THRESHOLD", 88)
   };
 }
 
