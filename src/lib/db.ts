@@ -159,6 +159,29 @@ export function initSchema() {
   ensureColumn(database, "signals", "position_reason_th", "TEXT");
   ensureColumn(database, "signals", "market_guard_status", "TEXT");
   ensureColumn(database, "signals", "market_guard_reason", "TEXT");
+  const legacyRows = database.prepare("SELECT COUNT(*) as count FROM signals WHERE confidence_pct = 0 AND quality_label = 'C'").get() as { count: number };
+  if (legacyRows.count > 0) {
+    database.exec(`
+      UPDATE signals
+      SET
+        confidence_pct = CASE
+          WHEN score >= 95 THEN 78
+          WHEN score >= 90 THEN 72
+          WHEN score >= 85 THEN 66
+          ELSE 60
+        END,
+        quality_label = CASE
+          WHEN score >= 95 THEN 'A+'
+          WHEN score >= 90 THEN 'A'
+          WHEN score >= 85 THEN 'B'
+          ELSE 'C'
+        END,
+        position_reason_th = COALESCE(position_reason_th, 'ข้อมูลเดิมก่อนมี dynamic sizing ใช้ทุนตามแผนเดิม'),
+        market_guard_status = COALESCE(market_guard_status, 'normal'),
+        market_guard_reason = COALESCE(market_guard_reason, 'market_guard=normal legacy_backfill')
+      WHERE confidence_pct = 0 AND quality_label = 'C';
+    `);
+  }
 }
 
 function ensureColumn(database: SqliteDatabase, table: string, column: string, definition: string) {
