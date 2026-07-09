@@ -31,19 +31,30 @@ export default async function PerformancePage() {
         </div>
       </section>
       <section className="rounded-lg border border-line bg-paper p-5 shadow-soft">
-        <h2 className="text-lg font-bold">Score vs Outcome</h2>
-        <div className="mt-5 space-y-3">
-          {data.scoreBuckets.map((bucket) => (
-            <div key={bucket.label}>
-              <div className="mb-1 flex justify-between text-sm">
-                <span>{bucket.label}</span>
-                <span className="text-muted">{bucket.winRate.toFixed(1)}% win / {bucket.count} signals</span>
-              </div>
-              <div className="h-2 rounded-full bg-slate-100">
-                <div className="h-2 rounded-full bg-good" style={{ width: `${Math.min(100, bucket.winRate)}%` }} />
-              </div>
-            </div>
-          ))}
+        <h2 className="text-lg font-bold">Performance by Score Band</h2>
+        <div className="mt-5 table-scroll">
+          <table className="w-full min-w-[680px] text-left text-sm">
+            <thead className="text-xs uppercase text-muted">
+              <tr className="border-b border-line">
+                <th className="py-3">Score Band</th>
+                <th>Total Signals</th>
+                <th>Entry Hit Rate</th>
+                <th>Win Rate</th>
+                <th>Avg Return</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.scoreBuckets.map((bucket) => (
+                <tr key={bucket.label} className="border-b border-line last:border-0">
+                  <td className="py-3 font-bold">{bucket.label}</td>
+                  <td>{bucket.count}</td>
+                  <td>{bucket.entryHitRate.toFixed(1)}%</td>
+                  <td>{bucket.winRate.toFixed(1)}%</td>
+                  <td>{bucket.avgReturnPct.toFixed(2)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
     </main>

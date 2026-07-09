@@ -18,7 +18,7 @@ export function SignalTable({ signals, compact = false }: { signals: SignalRow[]
 
   return (
     <div className="table-scroll">
-      <table className="w-full min-w-[920px] text-left text-sm">
+      <table className="w-full min-w-[1080px] text-left text-sm">
         <thead className="text-xs uppercase text-muted">
           <tr className="border-b border-line">
             <th className="py-3">ID</th>
@@ -28,6 +28,8 @@ export function SignalTable({ signals, compact = false }: { signals: SignalRow[]
             <th>Target 1</th>
             <th>Target 2</th>
             <th>Score</th>
+            <th>Confidence</th>
+            <th>Quality</th>
             <th>DCA</th>
             <th>Stake</th>
             {!compact && <th>Created</th>}
@@ -48,6 +50,10 @@ export function SignalTable({ signals, compact = false }: { signals: SignalRow[]
               <td>{signal.target1.toFixed(4)}</td>
               <td>{signal.target2.toFixed(4)}</td>
               <td>{signal.score}/100</td>
+              <td>{signal.confidence_pct || 0}%</td>
+              <td>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{signal.quality_label || "C"}</span>
+              </td>
               <td>{signal.dca_level && signal.dca_level > 1 ? `ไม้ ${signal.dca_level}` : "-"}</td>
               <td>{(signal.total_position_thb || signal.stake_thb).toLocaleString("th-TH")} บาท</td>
               {!compact && <td>{new Date(signal.created_at).toLocaleString("th-TH")}</td>}

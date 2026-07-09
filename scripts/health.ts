@@ -1,0 +1,85 @@
+import { calculatePortfolioHeat } from "../src/lib/analytics";
+import { getDb, initSchema } from "../src/lib/db";
+import { fetchSpotTickers } from "../src/lib/gateio";
+import { evaluateMarketGuard } from "../src/lib/market-guard";
+import { calculateStats } from "../src/lib/stats";
+import { sendTelegramMessage } from "../src/lib/telegram";
+
+async function main() {
+  initSchema();
+  const stats = calculateStats();
+  const heat = calculatePortfolioHeat();
+  const latestSnapshot = getDb().prepare("SELECT captured_at FROM price_snapshots ORDER BY captured_at DESC LIMIT 1").get() as
+    | { captured_at: string }
+    | undefined;
+
+  let gateOk = false;
+  let marketGuardLabel = "unknown";
+  let marketGuardStatus = "unknown";
+  try {
+    const tickers = await fetchSpotTickersWithRetry();
+    gateOk = tickers.length > 0;
+    const marketGuard = await evaluateMarketGuard(tickers);
+    marketGuardStatus = marketGuard.status;
+    marketGuardLabel = marketGuard.labelTh;
+  } catch (error) {
+    console.log(`[health] gateio_failed error=${String(error)}`);
+  }
+
+  const message = [
+    "✅ SwingSignal OS Health",
+    `สแกนล่าสุด: ${latestSnapshot ? formatThaiDateTime(new Date(latestSnapshot.captured_at)) : "ยังไม่มีข้อมูล"}`,
+    `Active Signals: ${heat.activeSetupCount}`,
+    `Portfolio Heat: ${heat.heatPct.toFixed(1)}%`,
+    `Reserve: ${formatThb(heat.reserveThb)} บาท (${heat.reservePct.toFixed(1)}%)`,
+    `Entry Hit Rate: ${stats.entryHitRate.toFixed(1)}%`,
+    `Win Rate: ${stats.winRate.toFixed(1)}%`,
+    `Market Guard: ${marketGuardLabel} (${marketGuardStatus})`,
+    "Telegram: OK",
+    `Gate.io: ${gateOk ? "OK" : "FAIL"}`,
+    "Database: OK"
+  ].join("\n");
+
+  const telegram = await sendTelegramMessage(message);
+  if (!telegram.ok) {
+    console.log(`[health] telegram_failed error=${telegram.error}`);
+    console.log(message.replace("Telegram: OK", "Telegram: FAIL"));
+    return;
+  }
+
+  console.log(message);
+}
+
+function formatThb(value: number) {
+  return value.toLocaleString("th-TH", { maximumFractionDigits: 0 });
+}
+
+async function fetchSpotTickersWithRetry() {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await fetchSpotTickers();
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 750));
+    }
+  }
+  throw lastError;
+}
+
+function formatThaiDateTime(date: Date) {
+  return date.toLocaleString("th-TH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Bangkok"
+  });
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

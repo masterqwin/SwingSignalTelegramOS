@@ -48,6 +48,11 @@ export function initSchema() {
       stake_thb REAL NOT NULL,
       usdthb_rate REAL NOT NULL,
       score INTEGER NOT NULL,
+      confidence_pct INTEGER NOT NULL DEFAULT 0,
+      quality_label TEXT NOT NULL DEFAULT 'C',
+      position_reason_th TEXT,
+      market_guard_status TEXT,
+      market_guard_reason TEXT,
       risk_level TEXT NOT NULL,
       reason_th TEXT NOT NULL,
       entry_hit_at TEXT,
@@ -149,6 +154,11 @@ export function initSchema() {
   ensureColumn(database, "signals", "total_position_thb", "REAL");
   ensureColumn(database, "signals", "updated_target1", "REAL");
   ensureColumn(database, "signals", "updated_target2", "REAL");
+  ensureColumn(database, "signals", "confidence_pct", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "signals", "quality_label", "TEXT NOT NULL DEFAULT 'C'");
+  ensureColumn(database, "signals", "position_reason_th", "TEXT");
+  ensureColumn(database, "signals", "market_guard_status", "TEXT");
+  ensureColumn(database, "signals", "market_guard_reason", "TEXT");
 }
 
 function ensureColumn(database: SqliteDatabase, table: string, column: string, definition: string) {

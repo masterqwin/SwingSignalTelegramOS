@@ -1,0 +1,46 @@
+name: SwingSignal Daily Health
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      USDTHB_RATE: ${{ secrets.USDTHB_RATE }}
+      SIGNAL_EXPIRY_DAYS: 3
+      SCAN_INTERVAL_MINUTES: 5
+      MAX_ACTIVE_SIGNALS: 5
+      DEFAULT_STAKE_THB: 20000
+      STARTING_CAPITAL_THB: 200000
+      MAX_DCA_ENTRIES: 3
+      RECOVERY_DROP_PCT: 5
+      RECOVERY_SCORE_THRESHOLD: 88
+      DATABASE_PATH: ./data/swing_signal.sqlite
+      DEBUG_SIGNAL: "false"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Initialize database
+        run: npm run db:init
+
+      - name: Send health summary
+        run: npm run health:once

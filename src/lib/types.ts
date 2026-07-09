@@ -30,6 +30,11 @@ export interface SignalRow {
   stake_thb: number;
   usdthb_rate: number;
   score: number;
+  confidence_pct: number;
+  quality_label: string;
+  position_reason_th: string | null;
+  market_guard_status: string | null;
+  market_guard_reason: string | null;
   risk_level: string;
   reason_th: string;
   entry_hit_at: string | null;
@@ -84,8 +89,36 @@ export interface SignalCandidate {
   target1: number;
   target2: number;
   score: number;
+  confidencePct: number;
+  qualityLabel: string;
+  recommendedStakeThb: number;
+  positionReasonTh: string;
+  marketGuardStatus: MarketGuardStatus;
+  marketGuardReason: string;
   riskLevel: string;
   reasonTh: string;
+}
+
+export type MarketGuardStatus = "normal" | "caution" | "risk_off";
+
+export interface MarketGuardResult {
+  status: MarketGuardStatus;
+  labelTh: string;
+  reason: string;
+  confidenceAdjustment: number;
+  blockNewSetups: boolean;
+}
+
+export interface PortfolioHeat {
+  startingCapitalThb: number;
+  activeExposureThb: number;
+  reserveThb: number;
+  reservePct: number;
+  recoveryExposureThb: number;
+  activeSetupCount: number;
+  activeCoinCount: number;
+  maxActiveSignals: number;
+  heatPct: number;
 }
 
 export interface RecoveryPlan {

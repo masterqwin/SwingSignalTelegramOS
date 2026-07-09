@@ -1,6 +1,8 @@
 import { getSystemConfig } from "../src/lib/config";
 import { getDb, initSchema } from "../src/lib/db";
 import { fetchSpotTickers, tickerPrice } from "../src/lib/gateio";
+import { calculatePortfolioHeat } from "../src/lib/analytics";
+import { evaluateMarketGuard } from "../src/lib/market-guard";
 import {
   buildCandidate,
   applyRecoveryPlan,
@@ -25,6 +27,8 @@ async function scanOnce() {
   const universe = getDb().prepare("SELECT pair FROM coin_universe WHERE enabled = 1").all() as Array<{ pair: string }>;
   const allowed = new Set(universe.map((row) => row.pair));
   const allTickers = await fetchSpotTickers();
+  const marketGuard = await evaluateMarketGuard(allTickers);
+  console.log(`[scanner] ${marketGuard.reason}`);
   const allTickerPairs = new Set(allTickers.map((ticker) => ticker.currency_pair));
   const tickers = allTickers.filter((ticker) => allowed.has(ticker.currency_pair));
   const tickerByPair = new Map<string, GateTicker>(tickers.map((ticker) => [ticker.currency_pair, ticker]));
@@ -74,7 +78,14 @@ async function scanOnce() {
     }
   }
 
+  const portfolioHeat = calculatePortfolioHeat();
+
   for (const ticker of tickers) {
+    if (!config.debugSignal && marketGuard.blockNewSetups) {
+      skipped += 1;
+      continue;
+    }
+
     if (!config.debugSignal && !canCreateMoreSignals()) {
       capacitySkipped += 1;
       continue;
@@ -86,7 +97,12 @@ async function scanOnce() {
       continue;
     }
 
-    const candidate = await buildCandidate(ticker, { minScore: config.debugSignal ? 0 : 85, debugMode: config.debugSignal });
+    const candidate = await buildCandidate(ticker, {
+      minScore: config.debugSignal ? 0 : 85,
+      debugMode: config.debugSignal,
+      marketGuard,
+      activeExposureThb: portfolioHeat.activeExposureThb
+    });
     if (!candidate) {
       skipped += 1;
       continue;
@@ -96,7 +112,7 @@ async function scanOnce() {
 
   candidates.sort((a, b) => b.score - a.score);
   const topCandidate = candidates[0];
-  const selected = config.debugSignal ? topCandidate : candidates.find((candidate) => candidate.score >= 85);
+  const selected = config.debugSignal ? topCandidate : candidates.find((candidate) => candidate.score >= 85 && candidate.qualityLabel !== "C");
 
   if (selected && (config.debugSignal || canCreateMoreSignals())) {
     const signal = createSignal(selected, { isDebug: config.debugSignal });
@@ -104,7 +120,9 @@ async function scanOnce() {
     telegramSent = telegramSent || telegram.ok;
     if (!telegram.ok) console.log(`[scanner] telegram_failed event=SETUP_SIGNAL #${signal.signal_id} error=${telegram.error}`);
     signalsCreated += 1;
-    console.log(`[scanner] setup #${signal.signal_id} ${signal.pair} score=${signal.score} debug=${Boolean(signal.is_debug)}`);
+    console.log(
+      `[scanner] setup #${signal.signal_id} ${signal.pair} score=${signal.score} confidence=${signal.confidence_pct}% quality=${signal.quality_label} market_guard=${signal.market_guard_status} debug=${Boolean(signal.is_debug)}`
+    );
   } else if (selected && !canCreateMoreSignals()) {
     capacitySkipped += 1;
   }
@@ -116,6 +134,7 @@ async function scanOnce() {
   console.log(`[scanner] candidates=${candidates.length}`);
   console.log(`[scanner] top_candidate=${topCandidate ? `${topCandidate.pair} score=${topCandidate.score}` : "none"}`);
   console.log(`[scanner] signals_created=${signalsCreated}`);
+  console.log(`[scanner] market_guard=${marketGuard.status}`);
   console.log(`[scanner] debug_signal=${config.debugSignal}`);
   console.log(`[scanner] telegram_sent=${telegramSent}`);
   console.log(`[scanner] active_signals=${getActiveSignalCount()}`);

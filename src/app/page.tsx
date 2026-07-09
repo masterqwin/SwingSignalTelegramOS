@@ -7,8 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   const data = await getDashboardData();
-  const reserve = data.config.startingCapitalThb - data.activeExposureThb;
-  const reservePct = data.config.startingCapitalThb ? (reserve / data.config.startingCapitalThb) * 100 : 0;
+  const heat = data.portfolioHeat;
 
   return (
     <main className="space-y-6">
@@ -16,7 +15,7 @@ export default async function OverviewPage() {
         <MetricCard icon={RadioTower} label="สัญญาณทั้งหมด" value={data.stats.totalSignals} helper="บันทึกแบบ paper tracking" />
         <MetricCard icon={Activity} label="Entry Hit Rate" value={`${data.stats.entryHitRate.toFixed(1)}%`} helper={`${data.stats.entryHitCount} signals เข้าโซน`} />
         <MetricCard icon={ShieldCheck} label="Win Rate จำลอง" value={`${data.stats.winRate.toFixed(1)}%`} helper="นับจาก target plan ที่ปิดแล้ว" />
-        <MetricCard icon={Banknote} label="เงินสำรอง" value={`${reservePct.toFixed(1)}%`} helper={`${reserve.toLocaleString("th-TH")} บาท`} />
+        <MetricCard icon={Banknote} label="Portfolio Heat" value={`${heat.heatPct.toFixed(1)}%`} helper={`Active ${heat.activeExposureThb.toLocaleString("th-TH")} บาท`} />
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
@@ -34,12 +33,16 @@ export default async function OverviewPage() {
         <div className="rounded-lg border border-line bg-paper p-5 shadow-soft">
           <h2 className="text-lg font-bold">แผนเงินทุน</h2>
           <div className="mt-4 space-y-4 text-sm">
-            <Row label="ทุนตั้งต้น" value={`${data.config.startingCapitalThb.toLocaleString("th-TH")} บาท`} />
+            <Row label="ทุนตั้งต้น" value={`${heat.startingCapitalThb.toLocaleString("th-TH")} บาท`} />
             <Row label="ทุนแนะนำต่อไม้" value={`${data.config.defaultStakeThb.toLocaleString("th-TH")} บาท`} />
-            <Row label="Active exposure" value={`${data.activeExposureThb.toLocaleString("th-TH")} บาท`} />
-            <Row label="จำกัดสัญญาณ Active" value={`${data.activeSignals.length}/${data.config.maxActiveSignals}`} />
+            <Row label="Portfolio Heat" value={`${heat.heatPct.toFixed(1)}%`} />
+            <Row label="Active Exposure" value={`${heat.activeExposureThb.toLocaleString("th-TH")} บาท`} />
+            <Row label="Reserve Remaining" value={`${heat.reserveThb.toLocaleString("th-TH")} บาท (${heat.reservePct.toFixed(1)}%)`} />
+            <Row label="Recovery Exposure" value={`${heat.recoveryExposureThb.toLocaleString("th-TH")} บาท`} />
+            <Row label="Slot Used" value={`${heat.activeSetupCount}/${heat.maxActiveSignals}`} />
+            <Row label="Active Coins" value={`${heat.activeCoinCount}`} />
             <div className="h-2 rounded-full bg-slate-100">
-              <div className="h-2 rounded-full bg-blue" style={{ width: `${Math.min(100, (data.activeExposureThb / data.config.startingCapitalThb) * 100)}%` }} />
+              <div className="h-2 rounded-full bg-blue" style={{ width: `${Math.min(100, heat.heatPct)}%` }} />
             </div>
             <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
               ระบบตั้งใจเก็บเงินสดสำรอง 40-50% และจะไม่สร้างสัญญาณใหม่เมื่อเกินจำนวน Active ที่กำหนด

@@ -1,6 +1,7 @@
 import { getSystemConfig } from "./config";
 import { getDb } from "./db";
 import { loadLocalEnv } from "./env";
+import { calculatePortfolioHeat } from "./analytics";
 import type { SignalRow } from "./types";
 
 export async function sendTelegramMessage(text: string): Promise<{ ok: boolean; error?: string }> {
@@ -53,6 +54,8 @@ export function formatSignalMessage(signal: SignalRow, eventType: string, curren
   const target1Thb = signal.target1 * signal.usdthb_rate;
   const target2Thb = signal.target2 * signal.usdthb_rate;
   const currentThb = currentPrice * signal.usdthb_rate;
+  const portfolioHeat = calculatePortfolioHeat();
+  const marketGuardLabel = formatMarketGuardLabel(signal.market_guard_status || "normal");
 
   if (eventType === "SETUP_SIGNAL") {
     return [
@@ -61,15 +64,23 @@ export function formatSignalMessage(signal: SignalRow, eventType: string, curren
       "━━━━━━━━━━━━━━",
       `เหรียญ: ${signal.symbol}/USDT`,
       `คะแนน: ${signal.score}/100`,
+      `ความมั่นใจ: ${signal.confidence_pct || 0}%`,
+      `คุณภาพสัญญาณ: ${signal.quality_label || "C"}`,
       `ความเสี่ยง: ${signal.risk_level}`,
+      `ภาพรวมตลาด: ${marketGuardLabel}`,
+      "",
+      "สถานะพอร์ต:",
+      `ใช้ทุนอยู่: ${portfolioHeat.heatPct.toFixed(1)}%`,
+      `เหลือสำรอง: ${formatThb(portfolioHeat.reserveThb)} บาท`,
+      `Slot: ${portfolioHeat.activeSetupCount}/${portfolioHeat.maxActiveSignals}`,
       "",
       "💰 ตั้ง Buy Limit",
       `${formatPrice(signal.entry_low)} - ${formatPrice(signal.entry_high)} USDT`,
       `≈ ${formatThb(entryLowThb)} - ${formatThb(entryHighThb)} บาท`,
       "",
       "💵 ทุนแนะนำ",
-      `${formatThb(signal.stake_thb)} บาท`,
-      `≈ ${formatUsdt(stakeUsdt)} USDT`,
+      `${formatThb(signal.stake_thb)} บาท ≈ ${formatUsdt(stakeUsdt)} USDT`,
+      `เหตุผลทุน: ${signal.position_reason_th || "ใช้ทุนตามคุณภาพสัญญาณ"}`,
       "",
       "คาดว่าจะได้รับ",
       `≈ ${formatCoinQty(estimatedCoinQty)} ${signal.symbol}`,
@@ -240,6 +251,12 @@ function formatCoinQty(value: number) {
   if (value >= 1000) return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
   if (value >= 1) return value.toLocaleString("en-US", { maximumFractionDigits: 3 });
   return value.toLocaleString("en-US", { maximumFractionDigits: 6 });
+}
+
+function formatMarketGuardLabel(status: string) {
+  if (status === "risk_off") return "Risk-Off";
+  if (status === "caution") return "ระวัง";
+  return "ปกติ";
 }
 
 function formatThaiDateTime(date: Date) {

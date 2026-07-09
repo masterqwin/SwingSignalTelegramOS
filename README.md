@@ -322,18 +322,96 @@ USDTHB_RATE
 - ถ้ายังเป็นแค่ SETUP และยังไม่ ENTRY_HIT ระบบจะไม่ส่ง Recovery
 - Performance ไม่ถือ Recovery เป็น signal ใหม่แยกจาก parent
 
+## Confidence Score คืออะไร
+
+`confidence_pct` เป็นคะแนนความมั่นใจแยกจาก `score` ของ setup. `score` วัดความสวยของสัญญาณตามกฎหลัก ส่วน confidence วัดความครบของหลักฐานประกอบ เช่น volume ratio, ระยะใกล้แนวรับ, reward/risk, volatility range, trend 24h, คุณภาพย้อนหลังของเหรียญ และ Market Guard.
+
+Telegram และ Dashboard จะแสดงเช่น `ความมั่นใจ: 72%`. Debug signals ยังมี `is_debug=1` และไม่ถูกนับในสถิติจริง.
+
+## Dynamic Position Size คืออะไร
+
+ค่า default ยังเป็น `DEFAULT_STAKE_THB=20000` แต่ระบบจะแนะนำทุนตามคุณภาพสัญญาณ:
+
+- score 85-89: 10,000 บาท
+- score 90-94: 20,000 บาท
+- score 95+: 25,000 บาท
+- confidence ต่ำกว่า 65%: ลดทุนลง 25%
+
+ระบบยังคุม exposure รวมด้วย `MAX_ACTIVE_SIGNALS`, `DEFAULT_STAKE_THB`, และ `STARTING_CAPITAL_THB`. Telegram จะแสดงทั้ง THB และ USDT พร้อมเหตุผลทุน เช่น `ทุนแนะนำ: 20,000 บาท ≈ 548 USDT`.
+
+## Portfolio Heat คืออะไร
+
+Portfolio Heat คือ `active exposure / starting capital * 100`. Dashboard Overview แสดง:
+
+- Portfolio Heat
+- Active Exposure
+- Reserve Remaining
+- Recovery Exposure
+- Slot Used
+
+Telegram SETUP จะแสดงสถานะพอร์ต เช่น ใช้ทุนอยู่กี่เปอร์เซ็นต์, เหลือสำรองกี่บาท, และ slot `2/5`.
+
+## Market Guard คืออะไร
+
+Market Guard ใช้ Gate.io public data ของ `BTC_USDT` และ `ETH_USDT` เพื่อดูภาพรวมตลาดก่อนสร้าง SETUP ใหม่:
+
+- `normal`: ตลาดปกติ
+- `caution`: ลด confidence ของสัญญาณใหม่
+- `risk_off`: หยุดส่ง SETUP ใหม่ แต่ยัง tracking lifecycle ของ signal เดิมต่อ
+
+scanner จะ log เหตุผลในรูปแบบ `market_guard=normal/caution/risk_off`. ไม่มีการใช้ exchange private API key.
+
+## วิธีอ่าน Coin Ranking
+
+หน้า Coin Ranking แสดง performance แยกตามเหรียญ: total signals, entry hit rate, target1 hit rate, target2 hit rate, cancel rate, average return pct, average time to entry, average time to target, win rate, และ quality grade A/B/C/D.
+
+Grade ใช้ดูคุณภาพย้อนหลังของเหรียญ ไม่ใช่คำสั่งซื้อขาย.
+
+## วิธีอ่าน Performance by Score Band
+
+หน้า Performance แยก score เป็น 3 ช่วง: 85-89, 90-94, และ 95-100. แต่ละช่วงแสดง total signals, entry hit rate, win rate, และ avg return เพื่อดูว่า score band ไหนแม่นที่สุดจาก paper tracking จริง.
+
+## Daily Health Summary
+
+รัน manual ได้ด้วย:
+
+```powershell
+npm run health:once
+```
+
+ระบบจะส่ง Telegram สรุปรายวัน:
+
+```text
+✅ SwingSignal OS Health
+สแกนล่าสุด: ...
+Active Signals: ...
+Portfolio Heat: ...
+Reserve: ...
+Entry Hit Rate: ...
+Win Rate: ...
+Market Guard: ...
+Telegram: OK
+Gate.io: OK
+Database: OK
+```
+
+GitHub Actions เพิ่ม workflow `SwingSignal Daily Health` ที่รันวันละครั้งช่วงเช้าไทยโดยประมาณ และไม่กระทบ workflow scanner ทุก 5 นาที.
+
 ## Architecture
 
 - `src/app` - Next.js App Router dashboard pages and API routes.
 - `src/components` - Thai dashboard UI components.
 - `src/lib/db.ts` - SQLite connection and schema helpers.
 - `src/lib/gateio.ts` - Gate.io public market data client.
+- `src/lib/analytics.ts` - confidence, position sizing, portfolio heat, ranking helpers.
+- `src/lib/market-guard.ts` - BTC/ETH public market guard.
 - `src/lib/signal-engine.ts` - rule-based pullback setup scoring and lifecycle checks.
 - `src/lib/telegram.ts` - Thai Telegram message formatting and sender.
 - `src/lib/stats.ts` - objective paper-tracking performance stats.
 - `scripts/db-init.ts` - creates SQLite tables.
 - `scripts/db-seed.ts` - seeds config and Gate.io allowlist universe.
 - `scripts/scanner.ts` - background worker.
+- `scripts/health.ts` - manual/GitHub Actions daily health summary.
 - `data/coin-allowlist.json` - configurable V1 credible coin universe.
 
 ## GitHub

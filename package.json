@@ -6,6 +6,7 @@
     "dev": "next dev",
     "scanner": "tsx scripts/scanner.ts",
     "scanner:once": "tsx scripts/scanner.ts --once",
+    "health:once": "tsx scripts/health.ts",
     "db:init": "tsx scripts/db-init.ts",
     "db:seed": "tsx scripts/db-seed.ts",
     "lint": "next lint",

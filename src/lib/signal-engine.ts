@@ -1,11 +1,21 @@
 import { getSystemConfig } from "./config";
 import { getDb } from "./db";
 import { fetchCandles, tickerPrice, tickerQuoteVolume } from "./gateio";
-import type { Candle, GateTicker, RecoveryPlan, SignalCandidate, SignalRow } from "./types";
+import {
+  calculateConfidencePct,
+  calculateRecommendedStake,
+  getHistoricalCoinQualityGrade,
+  getSignalQualityLabel,
+  isTradableQuality
+} from "./analytics";
+import type { Candle, GateTicker, MarketGuardResult, RecoveryPlan, SignalCandidate, SignalRow } from "./types";
 
 const ACTIVE_STATUSES = ["SETUP", "ENTRY_HIT", "TARGET1_HIT", "HOLD", "NO_MORE_DCA"];
 
-export async function buildCandidate(ticker: GateTicker, options: { minScore?: number; debugMode?: boolean } = {}): Promise<SignalCandidate | null> {
+export async function buildCandidate(
+  ticker: GateTicker,
+  options: { minScore?: number; debugMode?: boolean; marketGuard?: MarketGuardResult; activeExposureThb?: number } = {}
+): Promise<SignalCandidate | null> {
   const config = getSystemConfig();
   const minScore = options.minScore ?? 85;
   const debugMode = options.debugMode ?? false;
@@ -53,6 +63,23 @@ export async function buildCandidate(ticker: GateTicker, options: { minScore?: n
 
   const target1 = roundPrice(entryHigh * 1.045);
   const target2 = roundPrice(entryHigh * 1.082);
+  const stopProxy = entryLow * 0.965;
+  const rewardRiskRatio = (target1 - entryHigh) / Math.max(entryHigh - stopProxy, entryHigh * 0.001);
+  const historicalQualityGrade = getHistoricalCoinQualityGrade(ticker.currency_pair.replace("_USDT", ""));
+  const confidencePct = calculateConfidencePct({
+    score,
+    volumeRatio: recentVolume / Math.max(avgVolume, 1),
+    distanceToSupportPct,
+    rewardRiskRatio,
+    rangePct,
+    changePct,
+    historicalQualityGrade,
+    marketGuard: options.marketGuard
+  });
+  const qualityLabel = getSignalQualityLabel(score, confidencePct);
+  if (!debugMode && !isTradableQuality(qualityLabel)) return null;
+  const position = calculateRecommendedStake(score, confidencePct, options.activeExposureThb ?? 0);
+  if (!debugMode && position.stakeThb <= 0) return null;
   return {
     pair: ticker.currency_pair,
     symbol: ticker.currency_pair.replace("_USDT", ""),
@@ -62,6 +89,12 @@ export async function buildCandidate(ticker: GateTicker, options: { minScore?: n
     target1,
     target2,
     score,
+    confidencePct,
+    qualityLabel,
+    recommendedStakeThb: position.stakeThb || config.defaultStakeThb,
+    positionReasonTh: position.reasonTh,
+    marketGuardStatus: options.marketGuard?.status ?? "normal",
+    marketGuardReason: options.marketGuard?.reason ?? "market_guard=normal",
     riskLevel: score >= 92 ? "ต่ำ-ปานกลาง" : "ปานกลาง",
     reasonTh: "ย่อใกล้แนวรับ + Volume ผ่านเกณฑ์ + มีโอกาสเด้งในกรอบ + Reward คุ้มความเสี่ยง"
   };
@@ -96,8 +129,9 @@ export function createSignal(candidate: SignalCandidate, options: { isDebug?: bo
     .prepare(
       `INSERT INTO signals (
         signal_id, pair, symbol, status, created_at, expires_at, entry_low, entry_high,
-        current_price_at_signal, target1, target2, stake_thb, usdthb_rate, score, risk_level, reason_th, is_debug
-      ) VALUES (?, ?, ?, 'SETUP', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        current_price_at_signal, target1, target2, stake_thb, usdthb_rate, score, confidence_pct,
+        quality_label, position_reason_th, market_guard_status, market_guard_reason, risk_level, reason_th, is_debug
+      ) VALUES (?, ?, ?, 'SETUP', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       signalId,
@@ -110,9 +144,14 @@ export function createSignal(candidate: SignalCandidate, options: { isDebug?: bo
       candidate.currentPrice,
       candidate.target1,
       candidate.target2,
-      config.defaultStakeThb,
+      candidate.recommendedStakeThb,
       config.usdthbRate,
       candidate.score,
+      candidate.confidencePct,
+      candidate.qualityLabel,
+      candidate.positionReasonTh,
+      candidate.marketGuardStatus,
+      candidate.marketGuardReason,
       candidate.riskLevel,
       candidate.reasonTh,
       options.isDebug ? 1 : 0
