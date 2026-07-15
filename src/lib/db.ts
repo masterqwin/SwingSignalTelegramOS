@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getDatabasePath } from "./config";
+import { getDatabasePath, getSystemConfig } from "./config";
 
 type SqliteDatabase = {
   exec(sql: string): void;
@@ -69,7 +69,24 @@ export function initSchema() {
       total_position_usdt REAL,
       total_position_thb REAL,
       updated_target1 REAL,
-      updated_target2 REAL
+      updated_target2 REAL,
+      lifecycle_status TEXT,
+      close_reason TEXT,
+      position_plan_started_at TEXT,
+      position_plan_expires_at TEXT,
+      tp2_grace_expires_at TEXT,
+      profit_protection_started_at TEXT,
+      break_even_price REAL,
+      total_quantity REAL,
+      remaining_quantity REAL,
+      target_version INTEGER NOT NULL DEFAULT 1,
+      realized_gross_profit_usdt REAL,
+      realized_fees_usdt REAL,
+      realized_net_profit_usdt REAL,
+      realized_net_profit_thb REAL,
+      unrealized_remaining_pnl_usdt REAL,
+      final_net_profit_usdt REAL,
+      final_net_profit_thb REAL
     );
 
     CREATE TABLE IF NOT EXISTS signal_events (
@@ -140,11 +157,42 @@ export function initSchema() {
       score INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS position_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_id TEXT NOT NULL,
+      dca_level INTEGER NOT NULL,
+      entry_low REAL NOT NULL,
+      entry_high REAL NOT NULL,
+      filled_price REAL,
+      stake_usdt REAL NOT NULL,
+      stake_thb REAL NOT NULL,
+      quantity REAL NOT NULL,
+      fee_usdt REAL NOT NULL,
+      entry_hit_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS target_plan_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_id TEXT NOT NULL,
+      target_version INTEGER NOT NULL,
+      average_entry REAL NOT NULL,
+      break_even REAL NOT NULL,
+      target1 REAL NOT NULL,
+      target2 REAL NOT NULL,
+      expected_net_tp1 REAL NOT NULL,
+      expected_net_full REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      replaced_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
     CREATE INDEX IF NOT EXISTS idx_signals_pair_status ON signals(pair, status);
     CREATE INDEX IF NOT EXISTS idx_events_signal ON signal_events(signal_id);
     CREATE INDEX IF NOT EXISTS idx_snapshots_pair ON price_snapshots(pair, captured_at);
     CREATE INDEX IF NOT EXISTS idx_recovery_parent ON recovery_entries(parent_signal_id);
+    CREATE INDEX IF NOT EXISTS idx_position_entries_signal ON position_entries(signal_id);
+    CREATE INDEX IF NOT EXISTS idx_target_plan_signal ON target_plan_history(signal_id, target_version);
   `);
   ensureColumn(database, "signals", "is_debug", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "signals", "parent_signal_id", "TEXT");
@@ -159,6 +207,23 @@ export function initSchema() {
   ensureColumn(database, "signals", "position_reason_th", "TEXT");
   ensureColumn(database, "signals", "market_guard_status", "TEXT");
   ensureColumn(database, "signals", "market_guard_reason", "TEXT");
+  ensureColumn(database, "signals", "lifecycle_status", "TEXT");
+  ensureColumn(database, "signals", "close_reason", "TEXT");
+  ensureColumn(database, "signals", "position_plan_started_at", "TEXT");
+  ensureColumn(database, "signals", "position_plan_expires_at", "TEXT");
+  ensureColumn(database, "signals", "tp2_grace_expires_at", "TEXT");
+  ensureColumn(database, "signals", "profit_protection_started_at", "TEXT");
+  ensureColumn(database, "signals", "break_even_price", "REAL");
+  ensureColumn(database, "signals", "total_quantity", "REAL");
+  ensureColumn(database, "signals", "remaining_quantity", "REAL");
+  ensureColumn(database, "signals", "target_version", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(database, "signals", "realized_gross_profit_usdt", "REAL");
+  ensureColumn(database, "signals", "realized_fees_usdt", "REAL");
+  ensureColumn(database, "signals", "realized_net_profit_usdt", "REAL");
+  ensureColumn(database, "signals", "realized_net_profit_thb", "REAL");
+  ensureColumn(database, "signals", "unrealized_remaining_pnl_usdt", "REAL");
+  ensureColumn(database, "signals", "final_net_profit_usdt", "REAL");
+  ensureColumn(database, "signals", "final_net_profit_thb", "REAL");
   const legacyRows = database.prepare("SELECT COUNT(*) as count FROM signals WHERE confidence_pct = 0 AND quality_label = 'C'").get() as { count: number };
   if (legacyRows.count > 0) {
     database.exec(`
@@ -182,11 +247,53 @@ export function initSchema() {
       WHERE confidence_pct = 0 AND quality_label = 'C';
     `);
   }
+  const missingLifecycle = database.prepare("SELECT COUNT(*) as count FROM signals WHERE lifecycle_status IS NULL").get() as { count: number };
+  if (missingLifecycle.count > 0) {
+    database.exec("UPDATE signals SET lifecycle_status = status WHERE lifecycle_status IS NULL;");
+  }
+  backfillLegacyPositions(database);
 }
 
 function ensureColumn(database: SqliteDatabase, table: string, column: string, definition: string) {
   const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (!columns.some((item) => item.name === column)) {
     database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  }
+}
+
+function backfillLegacyPositions(database: SqliteDatabase) {
+  const config = getSystemConfig();
+  const rows = database
+    .prepare(
+      `SELECT signal_id, dca_level, entry_low, entry_high, average_entry_price, stake_thb, usdthb_rate, entry_hit_at, created_at
+       FROM signals
+       WHERE entry_hit_at IS NOT NULL
+         AND signal_id NOT IN (SELECT DISTINCT signal_id FROM position_entries)`
+    )
+    .all() as Array<{
+    signal_id: string;
+    dca_level: number;
+    entry_low: number;
+    entry_high: number;
+    average_entry_price: number | null;
+    stake_thb: number;
+    usdthb_rate: number;
+    entry_hit_at: string | null;
+    created_at: string;
+  }>;
+  for (const row of rows) {
+    const filledPrice = row.average_entry_price || (row.entry_low + row.entry_high) / 2;
+    const stakeUsdt = row.stake_thb / row.usdthb_rate;
+    const quantity = stakeUsdt / filledPrice;
+    const feeUsdt = stakeUsdt * (config.tradingFeePct / 100);
+    const entryAt = row.entry_hit_at || row.created_at;
+    database
+      .prepare(
+        `INSERT INTO position_entries (
+          signal_id, dca_level, entry_low, entry_high, filled_price, stake_usdt, stake_thb,
+          quantity, fee_usdt, entry_hit_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(row.signal_id, row.dca_level || 1, row.entry_low, row.entry_high, filledPrice, stakeUsdt, row.stake_thb, quantity, feeUsdt, entryAt, entryAt);
   }
 }

@@ -8,11 +8,20 @@ export function calculateStats() {
   const cancelledCount = signals.filter((s) => s.status === "CANCELLED").length;
   const target1HitCount = signals.filter((s) => s.target1_hit_at).length;
   const target2HitCount = signals.filter((s) => s.target2_hit_at).length;
-  const closed = signals.filter((s) => s.status === "CLOSED" || s.status === "CANCELLED");
+  const closed = signals.filter((s) => s.status === "CLOSED" || s.status === "CANCELLED" || s.status === "ENTRY_RETRACE_CLOSED" || s.status === "TP2_TIMEOUT_CLOSED");
   const wins = closed.filter((s) => s.target1_hit_at).length;
+  const fullTargetClosedCount = signals.filter((s) => s.close_reason === "FULL_TARGET_CLOSED").length;
+  const entryRetraceClosedCount = signals.filter((s) => s.close_reason === "ENTRY_RETRACE_CLOSED").length;
+  const tp2TimeoutClosedCount = signals.filter((s) => s.close_reason === "TP2_TIMEOUT_CLOSED").length;
+  const preTp1ReviewRequiredCount = signals.filter((s) => s.status === "PRE_TP1_REVIEW_REQUIRED").length;
+  const profitClosed = signals.filter((s) => s.final_net_profit_usdt !== null && s.final_net_profit_usdt !== undefined);
   const avgExpectedReturnPct = average(signals.map((s) => ((s.target2 - s.entry_high) / s.entry_high) * 100));
   const avgTimeToEntryHours = average(signals.filter((s) => s.entry_hit_at).map((s) => hoursBetween(s.created_at, s.entry_hit_at!)));
   const avgTimeToTargetHours = average(signals.filter((s) => s.target1_hit_at).map((s) => hoursBetween(s.entry_hit_at || s.created_at, s.target1_hit_at!)));
+  const avgTarget1NetProfitUsdt = average(signals.filter((s) => s.realized_net_profit_usdt !== null && s.realized_net_profit_usdt !== undefined).map((s) => s.realized_net_profit_usdt || 0));
+  const avgFinalNetProfitUsdt = average(profitClosed.map((s) => s.final_net_profit_usdt || 0));
+  const avgEntryToTarget1Hours = average(signals.filter((s) => s.entry_hit_at && s.target1_hit_at).map((s) => hoursBetween(s.entry_hit_at!, s.target1_hit_at!)));
+  const avgTarget1ToCloseHours = average(signals.filter((s) => s.target1_hit_at && s.closed_at).map((s) => hoursBetween(s.target1_hit_at!, s.closed_at!)));
 
   return {
     totalSignals,
@@ -24,7 +33,21 @@ export function calculateStats() {
     winRate: pct(wins, closed.length),
     avgExpectedReturnPct,
     avgTimeToEntryHours,
-    avgTimeToTargetHours
+    avgTimeToTargetHours,
+    fullTargetClosedCount,
+    fullTargetClosedRate: pct(fullTargetClosedCount, profitClosed.length),
+    entryRetraceClosedCount,
+    entryRetraceClosedRate: pct(entryRetraceClosedCount, profitClosed.length),
+    tp2TimeoutClosedCount,
+    tp2TimeoutClosedRate: pct(tp2TimeoutClosedCount, profitClosed.length),
+    preTp1ReviewRequiredCount,
+    avgTarget1NetProfitUsdt,
+    avgFinalNetProfitUsdt,
+    avgEntryToTarget1Hours,
+    avgTarget1ToCloseHours,
+    recoveryLevel1Count: signals.filter((s) => (s.dca_level || 1) === 1).length,
+    recoveryLevel2Count: signals.filter((s) => (s.dca_level || 1) === 2).length,
+    recoveryLevel3Count: signals.filter((s) => (s.dca_level || 1) >= 3).length
   };
 }
 

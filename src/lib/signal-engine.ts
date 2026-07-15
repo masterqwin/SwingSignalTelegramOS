@@ -2,15 +2,24 @@ import { getSystemConfig } from "./config";
 import { getDb } from "./db";
 import { fetchCandles, tickerPrice, tickerQuoteVolume } from "./gateio";
 import {
+  addDays,
+  buildPositionEntry,
+  calculateExitLeg,
+  calculatePositionPlan,
+  calculateRemainingClose,
+  makeTargetPlanRow,
+  roundPrice as roundLifecyclePrice
+} from "./position-lifecycle";
+import {
   calculateConfidencePct,
   calculateRecommendedStake,
   getHistoricalCoinQualityGrade,
   getSignalQualityLabel,
   isTradableQuality
 } from "./analytics";
-import type { Candle, GateTicker, MarketGuardResult, RecoveryPlan, SignalCandidate, SignalRow } from "./types";
+import type { Candle, GateTicker, MarketGuardResult, PositionEntryRow, RecoveryPlan, SignalCandidate, SignalRow } from "./types";
 
-const ACTIVE_STATUSES = ["SETUP", "ENTRY_HIT", "TARGET1_HIT", "HOLD", "NO_MORE_DCA"];
+const ACTIVE_STATUSES = ["SETUP", "ENTRY_HIT", "PRE_TARGET_1_MANAGEMENT", "TARGET1_HIT", "PROFIT_PROTECTION", "PRE_TP1_REVIEW_REQUIRED", "HOLD", "NO_MORE_DCA"];
 
 export async function buildCandidate(
   ticker: GateTicker,
@@ -130,8 +139,9 @@ export function createSignal(candidate: SignalCandidate, options: { isDebug?: bo
       `INSERT INTO signals (
         signal_id, pair, symbol, status, created_at, expires_at, entry_low, entry_high,
         current_price_at_signal, target1, target2, stake_thb, usdthb_rate, score, confidence_pct,
-        quality_label, position_reason_th, market_guard_status, market_guard_reason, risk_level, reason_th, is_debug
-      ) VALUES (?, ?, ?, 'SETUP', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        quality_label, position_reason_th, market_guard_status, market_guard_reason, risk_level, reason_th, is_debug,
+        lifecycle_status, target_version
+      ) VALUES (?, ?, ?, 'SETUP', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SETUP', 1)`
     )
     .run(
       signalId,
@@ -163,11 +173,13 @@ export function getSignalById(signalId: string) {
   return getDb().prepare("SELECT * FROM signals WHERE signal_id = ?").get(signalId) as SignalRow;
 }
 
-export function buildRecoveryPlan(signal: SignalRow, ticker: GateTicker): RecoveryPlan | null {
+export function buildRecoveryPlan(signal: SignalRow, ticker: GateTicker, options: { marketGuard?: MarketGuardResult; activeExposureThb?: number } = {}): RecoveryPlan | null {
   const config = getSystemConfig();
   if (config.debugSignal) return null;
-  if (signal.status !== "ENTRY_HIT") return null;
+  if (signal.status !== "ENTRY_HIT" && signal.status !== "PRE_TARGET_1_MANAGEMENT") return null;
   if (signal.is_debug) return null;
+  if (signal.target1_hit_at) return null;
+  if (signal.market_guard_status === "risk_off" || options.marketGuard?.status === "risk_off") return null;
 
   const currentPrice = tickerPrice(ticker);
   const quoteVolume = tickerQuoteVolume(ticker);
@@ -181,14 +193,37 @@ export function buildRecoveryPlan(signal: SignalRow, ticker: GateTicker): Recove
   const recoveryZone = previousEntryPrice * (1 - config.recoveryDropPct / 100);
   if (currentPrice > recoveryZone) return null;
 
-  const previousPositionUsdt = signal.total_position_usdt || signal.stake_thb / signal.usdthb_rate;
+  const entries = ensurePositionEntries(signal, currentPrice);
+  const previousPositionUsdt = entries.reduce((sum, entry) => sum + entry.stake_usdt, 0) || signal.stake_thb / signal.usdthb_rate;
   const newStakeThb = signal.stake_thb;
-  const newStakeUsdt = newStakeThb / signal.usdthb_rate;
-  const totalPositionUsdt = previousPositionUsdt + newStakeUsdt;
+  const activeExposureThb = options.activeExposureThb ?? 0;
+  const maxPortfolioExposureThb = Math.min(config.startingCapitalThb, config.defaultStakeThb * config.maxActiveSignals);
+  if (activeExposureThb + newStakeThb > maxPortfolioExposureThb) {
+    console.log(`[recovery] skip #${signal.signal_id} reason=portfolio_heat_limit`);
+    return null;
+  }
+  const now = new Date().toISOString();
+  const newEntry = buildPositionEntry(
+    {
+      dcaLevel: currentDcaLevel + 1,
+      entryLow: roundPrice(currentPrice * 0.995),
+      entryHigh: roundPrice(currentPrice * 1.005),
+      filledPrice: currentPrice,
+      stakeThb: newStakeThb,
+      usdthbRate: signal.usdthb_rate,
+      createdAt: now
+    },
+    config
+  );
+  const nextEntries = [...entries, { ...newEntry, id: 0, signal_id: signal.signal_id }];
+  const targetPlan = calculatePositionPlan(nextEntries, config);
+  if (!targetPlan) {
+    console.log(`[recovery] skip #${signal.signal_id} reason=no_profitable_exit_plan`);
+    return null;
+  }
+  const newStakeUsdt = newEntry.stake_usdt;
+  const totalPositionUsdt = nextEntries.reduce((sum, entry) => sum + entry.stake_usdt, 0);
   const totalPositionThb = totalPositionUsdt * signal.usdthb_rate;
-  const averageEntryPrice = ((previousEntryPrice * previousPositionUsdt) + (currentPrice * newStakeUsdt)) / totalPositionUsdt;
-  const updatedTarget1 = roundPrice(averageEntryPrice * 1.045);
-  const updatedTarget2 = roundPrice(averageEntryPrice * 1.082);
   const dropScore = currentPrice <= previousEntryPrice * (1 - config.recoveryDropPct / 100) ? 30 : 0;
   const volumeScore = quoteVolume >= config.minQuoteVolumeUsdt * 1.5 ? 25 : 20;
   const structureScore = changePct > -8 ? 25 : 15;
@@ -199,16 +234,26 @@ export function buildRecoveryPlan(signal: SignalRow, ticker: GateTicker): Recove
   return {
     parentSignalId: signal.signal_id,
     dcaLevel: currentDcaLevel + 1,
+    recoveryEntryLow: newEntry.entry_low,
+    recoveryEntryHigh: newEntry.entry_high,
     recoveryEntryPrice: roundPrice(currentPrice),
     previousEntryPrice,
     previousPositionUsdt,
     newStakeUsdt,
     newStakeThb,
-    averageEntryPrice: roundPrice(averageEntryPrice),
+    newQuantity: newEntry.quantity,
+    newFeeUsdt: newEntry.fee_usdt,
+    totalQuantity: targetPlan.totalQuantity,
+    totalCostUsdt: targetPlan.totalCostUsdt,
+    averageEntryPrice: targetPlan.averageEntry,
+    breakEvenPrice: targetPlan.breakEven,
     totalPositionUsdt,
     totalPositionThb,
-    updatedTarget1,
-    updatedTarget2,
+    updatedTarget1: targetPlan.target1,
+    updatedTarget2: targetPlan.target2,
+    expectedNetTp1Usdt: targetPlan.expectedNetTp1,
+    expectedNetFullUsdt: targetPlan.expectedNetFull,
+    targetVersion: (signal.target_version || 1) + 1,
     score
   };
 }
@@ -247,28 +292,82 @@ export function applyRecoveryPlan(signal: SignalRow, plan: RecoveryPlan) {
 
   getDb()
     .prepare(
+      `INSERT INTO position_entries (
+        signal_id, dca_level, entry_low, entry_high, filled_price, stake_usdt, stake_thb,
+        quantity, fee_usdt, entry_hit_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      signal.signal_id,
+      plan.dcaLevel,
+      plan.recoveryEntryLow,
+      plan.recoveryEntryHigh,
+      plan.recoveryEntryPrice,
+      plan.newStakeUsdt,
+      plan.newStakeThb,
+      plan.newQuantity,
+      plan.newFeeUsdt,
+      now,
+      now
+    );
+
+  getDb().prepare("UPDATE target_plan_history SET replaced_at = ? WHERE signal_id = ? AND replaced_at IS NULL").run(now, signal.signal_id);
+  getDb()
+    .prepare(
+      `INSERT INTO target_plan_history (
+        signal_id, target_version, average_entry, break_even, target1, target2,
+        expected_net_tp1, expected_net_full, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(signal.signal_id, plan.targetVersion, plan.averageEntryPrice, plan.breakEvenPrice, plan.updatedTarget1, plan.updatedTarget2, plan.expectedNetTp1Usdt, plan.expectedNetFullUsdt, now);
+
+  getDb()
+    .prepare("INSERT INTO signal_events (signal_id, event_type, message_th, created_at) VALUES (?, ?, ?, ?)")
+    .run(
+      signal.signal_id,
+      "TARGET_PLAN_UPDATED",
+      `Target plan updated to v${plan.targetVersion}: avg=${plan.averageEntryPrice}, break_even=${plan.breakEvenPrice}, tp1=${plan.updatedTarget1}, tp2=${plan.updatedTarget2}`,
+      now
+    );
+
+  getDb()
+    .prepare(
       `UPDATE signals SET
         parent_signal_id = ?,
         dca_level = ?,
+        status = 'PRE_TARGET_1_MANAGEMENT',
+        lifecycle_status = 'PRE_TARGET_1_MANAGEMENT',
         average_entry_price = ?,
+        break_even_price = ?,
+        total_quantity = ?,
+        remaining_quantity = ?,
         total_position_usdt = ?,
         total_position_thb = ?,
         updated_target1 = ?,
         updated_target2 = ?,
         target1 = ?,
-        target2 = ?
+        target2 = ?,
+        target_version = ?,
+        position_plan_started_at = ?,
+        position_plan_expires_at = ?
       WHERE signal_id = ?`
     )
     .run(
       signal.signal_id,
       plan.dcaLevel,
       plan.averageEntryPrice,
+      plan.breakEvenPrice,
+      plan.totalQuantity,
+      plan.totalQuantity,
       plan.totalPositionUsdt,
       plan.totalPositionThb,
       plan.updatedTarget1,
       plan.updatedTarget2,
       plan.updatedTarget1,
       plan.updatedTarget2,
+      plan.targetVersion,
+      now,
+      addDays(new Date(now), getSystemConfig().positionPlanDays).toISOString(),
       signal.signal_id
     );
 
@@ -289,6 +388,7 @@ export function recordSnapshot(ticker: GateTicker) {
 }
 
 export function updateSignalLifecycle(signal: SignalRow, currentPrice: number) {
+  const config = getSystemConfig();
   const now = new Date();
   const updates: string[] = [];
   const values: unknown[] = [];
@@ -299,25 +399,139 @@ export function updateSignalLifecycle(signal: SignalRow, currentPrice: number) {
 
   const events: string[] = [];
   if (signal.status === "SETUP" && now >= new Date(signal.expires_at)) {
-    updates.push("status = 'CANCELLED'", "cancelled_at = ?");
+    updates.push("status = 'CANCELLED'", "lifecycle_status = 'CANCELLED'", "close_reason = 'CANCELLED'", "cancelled_at = ?");
     values.push(now.toISOString());
     events.push("CANCEL_SIGNAL");
   } else if (signal.status === "SETUP" && currentPrice >= signal.entry_low && currentPrice <= signal.entry_high) {
-    updates.push("status = 'ENTRY_HIT'", "entry_hit_at = ?");
-    values.push(now.toISOString());
+    const nowIso = now.toISOString();
+    const entry = buildPositionEntry(
+      {
+        dcaLevel: 1,
+        entryLow: signal.entry_low,
+        entryHigh: signal.entry_high,
+        filledPrice: currentPrice,
+        stakeThb: signal.stake_thb,
+        usdthbRate: signal.usdthb_rate,
+        createdAt: nowIso
+      },
+      config
+    );
+    const plan = calculatePositionPlan([entry], config);
+    if (!plan) {
+      console.log(`[lifecycle] skip entry #${signal.signal_id} reason=no_profitable_exit_plan`);
+      return events;
+    }
+    insertPositionEntry(signal.signal_id, entry);
+    insertTargetPlan(signal, plan, 1, nowIso);
+    updates.push(
+      "status = 'PRE_TARGET_1_MANAGEMENT'",
+      "lifecycle_status = 'PRE_TARGET_1_MANAGEMENT'",
+      "entry_hit_at = ?",
+      "position_plan_started_at = ?",
+      "position_plan_expires_at = ?",
+      "average_entry_price = ?",
+      "break_even_price = ?",
+      "total_quantity = ?",
+      "remaining_quantity = ?",
+      "total_position_usdt = ?",
+      "total_position_thb = ?",
+      "target1 = ?",
+      "target2 = ?",
+      "updated_target1 = ?",
+      "updated_target2 = ?",
+      "target_version = 1"
+    );
+    values.push(
+      nowIso,
+      nowIso,
+      addDays(now, config.positionPlanDays).toISOString(),
+      plan.averageEntry,
+      plan.breakEven,
+      plan.totalQuantity,
+      plan.totalQuantity,
+      plan.totalCostUsdt,
+      plan.totalStakeThb,
+      plan.target1,
+      plan.target2,
+      plan.target1,
+      plan.target2
+    );
     events.push("ENTRY_HIT");
-  } else if (signal.status === "ENTRY_HIT" && currentPrice >= signal.target2) {
-    updates.push("status = 'CLOSED'", "target1_hit_at = COALESCE(target1_hit_at, ?)", "target2_hit_at = ?", "closed_at = ?");
-    values.push(now.toISOString(), now.toISOString(), now.toISOString());
-    events.push("TARGET_HIT_1", "TARGET_HIT_2", "SIGNAL_CLOSED");
-  } else if (signal.status === "ENTRY_HIT" && currentPrice >= signal.target1) {
-    updates.push("status = 'TARGET1_HIT'", "target1_hit_at = ?");
-    values.push(now.toISOString());
-    events.push("TARGET_HIT_1");
-  } else if (signal.status === "TARGET1_HIT" && currentPrice >= signal.target2) {
-    updates.push("status = 'CLOSED'", "target2_hit_at = ?", "closed_at = ?");
-    values.push(now.toISOString(), now.toISOString());
+  } else if ((signal.status === "ENTRY_HIT" || signal.status === "PRE_TARGET_1_MANAGEMENT") && currentPrice >= signal.target1) {
+    const entries = ensurePositionEntries(signal, currentPrice);
+    const target1Leg = calculateExitLeg(entries, signal.target1, 0.5, config);
+    updates.push(
+      "status = 'PROFIT_PROTECTION'",
+      "lifecycle_status = 'PROFIT_PROTECTION'",
+      "target1_hit_at = ?",
+      "profit_protection_started_at = ?",
+      "tp2_grace_expires_at = ?",
+      "remaining_quantity = ?",
+      "realized_gross_profit_usdt = ?",
+      "realized_fees_usdt = ?",
+      "realized_net_profit_usdt = ?",
+      "realized_net_profit_thb = ?"
+    );
+    const totalQuantity = signal.total_quantity || entries.reduce((sum, entry) => sum + entry.quantity, 0);
+    values.push(now.toISOString(), now.toISOString(), addDays(now, config.tp2GraceDays).toISOString(), totalQuantity * 0.5, target1Leg.grossProfitUsdt, target1Leg.feesUsdt, target1Leg.netProfitUsdt, target1Leg.netProfitUsdt * signal.usdthb_rate);
+    events.push("TARGET_HIT_1", "PROFIT_PROTECTION_STARTED");
+  } else if ((signal.status === "ENTRY_HIT" || signal.status === "PRE_TARGET_1_MANAGEMENT") && signal.position_plan_expires_at && now >= new Date(signal.position_plan_expires_at)) {
+    updates.push("status = 'PRE_TP1_REVIEW_REQUIRED'", "lifecycle_status = 'PRE_TP1_REVIEW_REQUIRED'");
+    events.push("PRE_TP1_REVIEW_REQUIRED");
+  } else if (signal.status === "PROFIT_PROTECTION" && currentPrice >= signal.target2) {
+    const entries = ensurePositionEntries(signal, currentPrice);
+    const target2Leg = calculateRemainingClose(signal, entries, signal.target2, config);
+    const finalNet = (signal.realized_net_profit_usdt || 0) + target2Leg.netProfitUsdt;
+    updates.push(
+      "status = 'CLOSED'",
+      "lifecycle_status = 'CLOSED'",
+      "close_reason = 'FULL_TARGET_CLOSED'",
+      "target2_hit_at = ?",
+      "closed_at = ?",
+      "remaining_quantity = 0",
+      "realized_gross_profit_usdt = ?",
+      "realized_fees_usdt = ?",
+      "realized_net_profit_usdt = ?",
+      "realized_net_profit_thb = ?",
+      "final_net_profit_usdt = ?",
+      "final_net_profit_thb = ?"
+    );
+    const gross = (signal.realized_gross_profit_usdt || 0) + target2Leg.grossProfitUsdt;
+    const fees = (signal.realized_fees_usdt || 0) + target2Leg.feesUsdt;
+    values.push(now.toISOString(), now.toISOString(), gross, fees, finalNet, finalNet * signal.usdthb_rate, finalNet, finalNet * signal.usdthb_rate);
     events.push("TARGET_HIT_2", "SIGNAL_CLOSED");
+  } else if (signal.status === "PROFIT_PROTECTION" && currentPrice <= protectedEntryThreshold(signal, config)) {
+    const entries = ensurePositionEntries(signal, currentPrice);
+    const remainingLeg = calculateRemainingClose(signal, entries, currentPrice, config);
+    const finalNet = (signal.realized_net_profit_usdt || 0) + remainingLeg.netProfitUsdt;
+    updates.push(
+      "status = 'ENTRY_RETRACE_CLOSED'",
+      "lifecycle_status = 'ENTRY_RETRACE_CLOSED'",
+      "close_reason = 'ENTRY_RETRACE_CLOSED'",
+      "closed_at = ?",
+      "remaining_quantity = 0",
+      "unrealized_remaining_pnl_usdt = ?",
+      "final_net_profit_usdt = ?",
+      "final_net_profit_thb = ?"
+    );
+    values.push(now.toISOString(), remainingLeg.netProfitUsdt, finalNet, finalNet * signal.usdthb_rate);
+    events.push("ENTRY_RETRACE_CLOSED", "SIGNAL_CLOSED");
+  } else if (signal.status === "PROFIT_PROTECTION" && signal.tp2_grace_expires_at && now >= new Date(signal.tp2_grace_expires_at)) {
+    const entries = ensurePositionEntries(signal, currentPrice);
+    const remainingLeg = calculateRemainingClose(signal, entries, currentPrice, config);
+    const finalNet = (signal.realized_net_profit_usdt || 0) + remainingLeg.netProfitUsdt;
+    updates.push(
+      "status = 'TP2_TIMEOUT_CLOSED'",
+      "lifecycle_status = 'TP2_TIMEOUT_CLOSED'",
+      "close_reason = 'TP2_TIMEOUT_CLOSED'",
+      "closed_at = ?",
+      "remaining_quantity = 0",
+      "unrealized_remaining_pnl_usdt = ?",
+      "final_net_profit_usdt = ?",
+      "final_net_profit_thb = ?"
+    );
+    values.push(now.toISOString(), remainingLeg.netProfitUsdt, finalNet, finalNet * signal.usdthb_rate);
+    events.push("TP2_TIMEOUT_CLOSED", "SIGNAL_CLOSED");
   }
 
   values.push(signal.signal_id);
@@ -331,6 +545,58 @@ export function getOpenSignals() {
     .all(...ACTIVE_STATUSES) as SignalRow[];
 }
 
+export function getPositionEntries(signalId: string) {
+  return getDb().prepare("SELECT * FROM position_entries WHERE signal_id = ? ORDER BY dca_level ASC, id ASC").all(signalId) as PositionEntryRow[];
+}
+
+function ensurePositionEntries(signal: SignalRow, currentPrice: number) {
+  const existing = getPositionEntries(signal.signal_id);
+  if (existing.length) return existing;
+  const entryAt = signal.entry_hit_at || new Date().toISOString();
+  const entry = buildPositionEntry(
+    {
+      dcaLevel: signal.dca_level || 1,
+      entryLow: signal.entry_low,
+      entryHigh: signal.entry_high,
+      filledPrice: signal.average_entry_price || currentPrice || (signal.entry_low + signal.entry_high) / 2,
+      stakeThb: signal.stake_thb,
+      usdthbRate: signal.usdthb_rate,
+      createdAt: entryAt
+    },
+    getSystemConfig()
+  );
+  insertPositionEntry(signal.signal_id, entry);
+  return getPositionEntries(signal.signal_id);
+}
+
+function insertPositionEntry(signalId: string, entry: Omit<PositionEntryRow, "id" | "signal_id">) {
+  getDb()
+    .prepare(
+      `INSERT INTO position_entries (
+        signal_id, dca_level, entry_low, entry_high, filled_price, stake_usdt, stake_thb,
+        quantity, fee_usdt, entry_hit_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(signalId, entry.dca_level, entry.entry_low, entry.entry_high, entry.filled_price, entry.stake_usdt, entry.stake_thb, entry.quantity, entry.fee_usdt, entry.entry_hit_at, entry.created_at);
+}
+
+function insertTargetPlan(signal: SignalRow, plan: NonNullable<ReturnType<typeof calculatePositionPlan>>, targetVersion: number, now: string) {
+  const row = makeTargetPlanRow(signal, plan, targetVersion, now);
+  getDb()
+    .prepare(
+      `INSERT INTO target_plan_history (
+        signal_id, target_version, average_entry, break_even, target1, target2,
+        expected_net_tp1, expected_net_full, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(signal.signal_id, row.target_version, row.average_entry, row.break_even, row.target1, row.target2, row.expected_net_tp1, row.expected_net_full, row.created_at);
+}
+
+function protectedEntryThreshold(signal: SignalRow, config = getSystemConfig()) {
+  const averageEntry = signal.average_entry_price || (signal.entry_low + signal.entry_high) / 2;
+  return averageEntry * (1 + config.entryRetraceBufferPct / 100);
+}
+
 function average(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 }
@@ -340,7 +606,5 @@ function closesAboveSupport(candles: Candle[], support: number) {
 }
 
 function roundPrice(value: number) {
-  if (value >= 100) return Number(value.toFixed(2));
-  if (value >= 1) return Number(value.toFixed(4));
-  return Number(value.toFixed(6));
+  return roundLifecyclePrice(value);
 }

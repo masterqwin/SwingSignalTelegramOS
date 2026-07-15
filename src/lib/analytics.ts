@@ -2,7 +2,7 @@ import { getSystemConfig } from "./config";
 import { getDb } from "./db";
 import type { MarketGuardResult, PortfolioHeat, SignalRow } from "./types";
 
-const ACTIVE_STATUSES = ["SETUP", "ENTRY_HIT", "TARGET1_HIT", "HOLD", "NO_MORE_DCA"];
+const ACTIVE_STATUSES = ["SETUP", "ENTRY_HIT", "PRE_TARGET_1_MANAGEMENT", "TARGET1_HIT", "PROFIT_PROTECTION", "PRE_TP1_REVIEW_REQUIRED", "HOLD", "NO_MORE_DCA"];
 
 export function calculateConfidencePct(input: {
   score: number;

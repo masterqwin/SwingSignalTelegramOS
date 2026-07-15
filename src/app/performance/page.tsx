@@ -14,7 +14,16 @@ export default async function PerformancePage() {
     ["Win Rate", `${data.stats.winRate.toFixed(2)}%`],
     ["Avg Expected Return", `${data.stats.avgExpectedReturnPct.toFixed(2)}%`],
     ["Avg Time To Entry", `${data.stats.avgTimeToEntryHours.toFixed(1)} ชม.`],
-    ["Avg Time To Target", `${data.stats.avgTimeToTargetHours.toFixed(1)} ชม.`]
+    ["Avg Time To Target", `${data.stats.avgTimeToTargetHours.toFixed(1)} ชม.`],
+    ["FULL_TARGET_CLOSED", `${data.stats.fullTargetClosedCount} (${data.stats.fullTargetClosedRate.toFixed(1)}%)`],
+    ["ENTRY_RETRACE_CLOSED", `${data.stats.entryRetraceClosedCount} (${data.stats.entryRetraceClosedRate.toFixed(1)}%)`],
+    ["TP2_TIMEOUT_CLOSED", `${data.stats.tp2TimeoutClosedCount} (${data.stats.tp2TimeoutClosedRate.toFixed(1)}%)`],
+    ["PRE_TP1_REVIEW_REQUIRED", data.stats.preTp1ReviewRequiredCount],
+    ["Avg Target 1 Net", `${data.stats.avgTarget1NetProfitUsdt.toFixed(2)} USDT`],
+    ["Avg Final Net", `${data.stats.avgFinalNetProfitUsdt.toFixed(2)} USDT`],
+    ["Entry → Target 1", `${data.stats.avgEntryToTarget1Hours.toFixed(1)} ชม.`],
+    ["Target 1 → Close", `${data.stats.avgTarget1ToCloseHours.toFixed(1)} ชม.`],
+    ["DCA Level 1/2/3", `${data.stats.recoveryLevel1Count}/${data.stats.recoveryLevel2Count}/${data.stats.recoveryLevel3Count}`]
   ];
 
   return (

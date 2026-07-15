@@ -28,7 +28,14 @@ export function getSystemConfig(): SystemConfig {
     debugSignal: bool("DEBUG_SIGNAL", false),
     maxDcaEntries: num("MAX_DCA_ENTRIES", 3),
     recoveryDropPct: num("RECOVERY_DROP_PCT", 5),
-    recoveryScoreThreshold: num("RECOVERY_SCORE_THRESHOLD", 88)
+    recoveryScoreThreshold: num("RECOVERY_SCORE_THRESHOLD", 88),
+    tradingFeePct: num("TRADING_FEE_PCT", 0.2),
+    slippageBufferPct: num("SLIPPAGE_BUFFER_PCT", 0.15),
+    minNetProfitTp1Pct: num("MIN_NET_PROFIT_TP1_PCT", 0.8),
+    minNetProfitTp2Pct: num("MIN_NET_PROFIT_TP2_PCT", 1.8),
+    positionPlanDays: num("POSITION_PLAN_DAYS", 3),
+    tp2GraceDays: num("TP2_GRACE_DAYS", 2),
+    entryRetraceBufferPct: num("ENTRY_RETRACE_BUFFER_PCT", 0)
   };
 }
 

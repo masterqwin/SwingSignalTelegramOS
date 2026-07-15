@@ -68,7 +68,10 @@ async function scanOnce() {
       }
     }
 
-    const recoveryPlan = buildRecoveryPlan(currentSignal, ticker);
+    const recoveryPlan = buildRecoveryPlan(currentSignal, ticker, {
+      marketGuard,
+      activeExposureThb: calculatePortfolioHeat().activeExposureThb
+    });
     if (recoveryPlan) {
       const recovered = applyRecoveryPlan(currentSignal, recoveryPlan);
       const telegram = await recordAndSendEvent(recovered, "RECOVERY_SIGNAL", recoveryPlan.recoveryEntryPrice);

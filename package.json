@@ -9,6 +9,7 @@
     "health:once": "tsx scripts/health.ts",
     "db:init": "tsx scripts/db-init.ts",
     "db:seed": "tsx scripts/db-seed.ts",
+    "test": "tsx scripts/lifecycle-tests.ts",
     "lint": "next lint",
     "build": "next build"
   },

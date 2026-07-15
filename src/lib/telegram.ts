@@ -147,7 +147,25 @@ export function formatSignalMessage(signal: SignalRow, eventType: string, curren
       ...debugLines,
       `เหรียญ: ${signal.symbol}/USDT`,
       `ราคาแตะเป้าขายไม้ 1 แล้ว: ${formatPrice(signal.target1)} USDT (≈ ${formatThb(target1Thb)} บาท)`,
-      "ตรวจสอบว่า Sell Limit ไม้ 1 ถูกขายหรือยัง"
+      "ถือว่าจำลองขาย 50% ของจำนวนรวมแล้ว",
+      `กำไรสุทธิส่วน TARGET 1 โดยประมาณ: ${formatUsdt(signal.realized_net_profit_usdt || expectedProfitUsdt * 0.5)} USDT`,
+      "เริ่ม Profit Protection: หลังจากนี้ระบบจะไม่ส่ง Recovery เพิ่มสำหรับสัญญาณนี้"
+    ].join("\n");
+  }
+
+  if (eventType === "PROFIT_PROTECTION_STARTED") {
+    return [
+      `🟣 PROFIT PROTECTION STARTED #${signal.signal_id}`,
+      ...debugLines,
+      `เหรียญ: ${signal.symbol}/USDT`,
+      "TARGET 1 สำเร็จแล้ว และเข้าสู่โหมดรักษากำไร",
+      `Average Entry: ${formatPrice(signal.average_entry_price || entryAverage)} USDT`,
+      `TARGET 2: ${formatPrice(signal.target2)} USDT`,
+      `หมดเวลา TP2 grace: ${signal.tp2_grace_expires_at ? formatThaiDateTime(new Date(signal.tp2_grace_expires_at)) : `${config.tp2GraceDays} วัน`}`,
+      "",
+      "คำสั่ง:",
+      "ถือส่วนที่เหลือ 50% ตาม TARGET 2",
+      "ถ้าราคาย้อนกลับถึง Average Entry ระบบจะแจ้งปิดส่วนที่เหลือ"
     ].join("\n");
   }
 
@@ -180,38 +198,120 @@ export function formatSignalMessage(signal: SignalRow, eventType: string, curren
     const averageEntryPrice = signal.average_entry_price || entryAverage;
     const totalPositionUsdt = signal.total_position_usdt || stakeUsdt;
     const totalPositionThb = signal.total_position_thb || signal.stake_thb;
+    const totalQuantity = signal.total_quantity || totalPositionUsdt / averageEntryPrice;
+    const recoveryQuantity = stakeUsdt / currentPrice;
     const recoveryEntryPrice = currentPrice;
+    const latestPlan = getLatestTargetPlan(signal.signal_id);
     return [
       `🟡 RECOVERY SIGNAL #${signal.signal_id}`,
       ...debugLines,
       `เหรียญ: ${signal.symbol}/USDT`,
-      "สถานะ: ราคาไหลลงถึงโซนช้อน",
+      `ระดับการช้อน: ไม้ ${dcaLevel} จากสูงสุด ${config.maxDcaEntries} ไม้`,
+      "สถานะ: TARGET 1 ยังไม่สำเร็จ และราคาเข้าสู่โซน Recovery",
       "",
+      "━━━━━━━━━━━━━━",
       "ไม้เดิม:",
-      `ไม้ ${previousLevel}: entry ${formatPrice(signal.current_price_at_signal)} USDT`,
-      `ทุนเดิม: ${formatUsdt(totalPositionUsdt - stakeUsdt)} USDT / ${formatThb(totalPositionThb - signal.stake_thb)} บาท`,
+      `ไม้ ${previousLevel}: ราคาเข้า ${formatPrice(signal.current_price_at_signal)} USDT`,
+      `ทุนเดิม: ${formatUsdt(Math.max(0, totalPositionUsdt - stakeUsdt))} USDT / ${formatThb(Math.max(0, totalPositionThb - signal.stake_thb))} บาท`,
       "",
-      "แนะนำไม้ใหม่:",
-      `ไม้ ${dcaLevel}: ตั้ง Buy Limit ${formatPrice(recoveryEntryPrice)} USDT`,
-      `ทุนแนะนำ: ${formatUsdt(stakeUsdt)} USDT / ${formatThb(signal.stake_thb)} บาท`,
+      "━━━━━━━━━━━━━━",
+      "ไม้ Recovery ใหม่",
+      "ตั้ง Buy Limit:",
+      `${formatPrice(signal.entry_low)} - ${formatPrice(recoveryEntryPrice)} USDT`,
+      `≈ ${formatThb(signal.entry_low * signal.usdthb_rate)} - ${formatThb(recoveryEntryPrice * signal.usdthb_rate)} บาท`,
       "",
-      "ต้นทุนเฉลี่ยใหม่:",
+      "ทุนแนะนำ:",
+      `${formatUsdt(stakeUsdt)} USDT`,
+      `≈ ${formatThb(signal.stake_thb)} บาท`,
+      "",
+      "คาดว่าจะได้รับ:",
+      `≈ ${formatCoinQty(recoveryQuantity)} ${signal.symbol}`,
+      "",
+      "━━━━━━━━━━━━━━",
+      "หลัง Recovery ถูก Fill",
+      `ต้นทุนรวม: ${formatUsdt(totalPositionUsdt)} USDT / ${formatThb(totalPositionThb)} บาท`,
+      `จำนวนเหรียญรวม: ${formatCoinQty(totalQuantity)} ${signal.symbol}`,
+      "Average Entry ใหม่:",
       `${formatPrice(averageEntryPrice)} USDT`,
       `≈ ${formatThb(averageEntryPrice * signal.usdthb_rate)} บาท`,
+      `Break-even หลัง fee: ${formatPrice(signal.break_even_price || averageEntryPrice)} USDT`,
       "",
-      "เป้าขายใหม่:",
-      `ไม้ขาย 1: ${formatPrice(signal.updated_target1 || signal.target1)} USDT จำนวน 50%`,
-      `ไม้ขาย 2: ${formatPrice(signal.updated_target2 || signal.target2)} USDT จำนวน 50%`,
+      "━━━━━━━━━━━━━━",
+      "เป้าขายใหม่",
+      `TARGET 1: ${formatPrice(signal.updated_target1 || signal.target1)} USDT ขาย 50%`,
+      `TARGET 2: ${formatPrice(signal.updated_target2 || signal.target2)} USDT ขาย 50%`,
+      "Expected Net Profit:",
+      `TARGET 1: ${formatUsdt(latestPlan?.expected_net_tp1 ?? 0)} USDT / ${formatThb((latestPlan?.expected_net_tp1 ?? 0) * signal.usdthb_rate)} บาท`,
+      `เต็มแผน: ${formatUsdt(latestPlan?.expected_net_full ?? 0)} USDT / ${formatThb((latestPlan?.expected_net_full ?? 0) * signal.usdthb_rate)} บาท`,
       "",
-      "เหตุผล:",
-      "✅ ราคาลงถึงโซนช้อน",
-      "✅ Volume ยังผ่าน",
-      "✅ ยังไม่หลุดโครงสร้างใหญ่",
-      "✅ Recovery score ผ่านเกณฑ์",
+      "อายุแผนใหม่:",
+      `${config.positionPlanDays} วันนับจาก Recovery Entry Hit`,
+      "",
+      "ตัวเลขกำไรเป็นค่าประมาณหลัง fee/slippage และขึ้นกับการ Fill จริง",
       "",
       "คำสั่ง:",
-      "ถ้าจะช้อน ให้ตั้ง Buy Limit ตามโซนใหม่",
-      "ยกเลิกเป้าขายเดิม แล้วใช้เป้าขายใหม่หลังไม้ Recovery ถูก Fill"
+      "1. ตั้ง Buy Limit ตาม Recovery Zone",
+      "2. เมื่อซื้อสำเร็จ ให้ยกเลิก Sell Limit เดิม",
+      "3. ใช้ Target 1 และ Target 2 ใหม่เท่านั้น",
+      "4. ระบบจะติดตามด้วย Signal ID เดิม"
+    ].join("\n");
+  }
+
+  if (eventType === "ENTRY_RETRACE_CLOSED") {
+    return [
+      `🟠 PROFIT PROTECTION CLOSE #${signal.signal_id}`,
+      ...debugLines,
+      `เหรียญ: ${signal.symbol}/USDT`,
+      "TARGET 1: สำเร็จแล้ว",
+      "สถานะ: ราคาย้อนกลับถึง Average Entry",
+      "",
+      `Average Entry: ${formatPrice(signal.average_entry_price || entryAverage)} USDT`,
+      `ราคาปัจจุบัน: ${formatPrice(currentPrice)} USDT`,
+      "",
+      "คำสั่ง:",
+      "ปิดส่วนที่เหลือ 50% และยกเลิก TARGET 2 เดิม",
+      "",
+      "เหตุผล:",
+      "รักษากำไรจาก TARGET 1 และไม่ปล่อยให้ส่วนที่เหลือกลับเป็นขาดทุนมากขึ้น",
+      "",
+      "ผลจำลอง:",
+      `กำไรจาก TARGET 1: ${formatUsdt(signal.realized_net_profit_usdt || 0)} USDT`,
+      `ผลส่วนที่เหลือ: ${formatUsdt(signal.unrealized_remaining_pnl_usdt || 0)} USDT`,
+      `กำไรสุทธิรวมโดยประมาณ: ${formatUsdt(signal.final_net_profit_usdt || 0)} USDT / ${formatThb(signal.final_net_profit_thb || 0)} บาท`,
+      "",
+      "Close reason: ENTRY_RETRACE_CLOSED"
+    ].join("\n");
+  }
+
+  if (eventType === "TP2_TIMEOUT_CLOSED") {
+    return [
+      `⏰ TARGET 2 TIMEOUT CLOSE #${signal.signal_id}`,
+      ...debugLines,
+      `เหรียญ: ${signal.symbol}/USDT`,
+      "TARGET 1: สำเร็จแล้ว",
+      `TARGET 2: ไม่สำเร็จภายใน ${config.tp2GraceDays} วัน`,
+      "",
+      "คำสั่ง:",
+      "ปิดส่วนที่เหลือ 50% และยกเลิก TARGET 2 เดิม",
+      "",
+      `ราคาปัจจุบัน: ${formatPrice(currentPrice)} USDT`,
+      `กำไรสุทธิรวมโดยประมาณ: ${formatUsdt(signal.final_net_profit_usdt || 0)} USDT / ${formatThb(signal.final_net_profit_thb || 0)} บาท`,
+      "",
+      "Close reason: TP2_TIMEOUT_CLOSED"
+    ].join("\n");
+  }
+
+  if (eventType === "PRE_TP1_REVIEW_REQUIRED") {
+    return [
+      `🟤 PRE TP1 REVIEW REQUIRED #${signal.signal_id}`,
+      ...debugLines,
+      `เหรียญ: ${signal.symbol}/USDT`,
+      "แผนยังไม่ถึง TARGET 1 ภายในอายุ Position Plan",
+      "Recovery ไม่ผ่านหรือครบจำนวนไม้แล้ว",
+      "ระบบไม่จำลองปิดเองโดยไม่มี rule และไม่เพิ่มการขายขาดทุนอัตโนมัติ",
+      "",
+      "คำสั่ง:",
+      "ทบทวนสถานะด้วยตนเอง และรอสัญญาณ lifecycle ถัดไป"
     ].join("\n");
   }
 
@@ -220,7 +320,9 @@ export function formatSignalMessage(signal: SignalRow, eventType: string, curren
       `✅ SIGNAL CLOSED #${signal.signal_id}`,
       ...debugLines,
       `เหรียญ: ${signal.symbol}/USDT`,
-      "สถานะ: ปิดแผนจำลองแล้ว"
+      `สถานะ: ปิดแผนจำลองแล้ว`,
+      `Close reason: ${signal.close_reason || "SIGNAL_CLOSED"}`,
+      `Final net: ${formatUsdt(signal.final_net_profit_usdt || 0)} USDT / ${formatThb(signal.final_net_profit_thb || 0)} บาท`
     ].join("\n");
   }
 
@@ -257,6 +359,12 @@ function formatMarketGuardLabel(status: string) {
   if (status === "risk_off") return "Risk-Off";
   if (status === "caution") return "ระวัง";
   return "ปกติ";
+}
+
+function getLatestTargetPlan(signalId: string) {
+  return getDb()
+    .prepare("SELECT * FROM target_plan_history WHERE signal_id = ? ORDER BY target_version DESC LIMIT 1")
+    .get(signalId) as { expected_net_tp1: number; expected_net_full: number } | undefined;
 }
 
 function formatThaiDateTime(date: Date) {

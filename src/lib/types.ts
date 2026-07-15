@@ -1,4 +1,19 @@
-export type SignalStatus = "SETUP" | "ENTRY_HIT" | "TARGET1_HIT" | "TARGET2_HIT" | "CANCELLED" | "CLOSED" | "HOLD" | "NO_MORE_DCA";
+export type SignalStatus =
+  | "SETUP"
+  | "ENTRY_HIT"
+  | "PRE_TARGET_1_MANAGEMENT"
+  | "TARGET1_HIT"
+  | "PROFIT_PROTECTION"
+  | "TARGET2_HIT"
+  | "ENTRY_RETRACE_CLOSED"
+  | "TP2_TIMEOUT_CLOSED"
+  | "PRE_TP1_REVIEW_REQUIRED"
+  | "CANCELLED"
+  | "CLOSED"
+  | "HOLD"
+  | "NO_MORE_DCA";
+
+export type CloseReason = "FULL_TARGET_CLOSED" | "ENTRY_RETRACE_CLOSED" | "TP2_TIMEOUT_CLOSED" | "CANCELLED" | null;
 
 export interface SystemConfig {
   usdthbRate: number;
@@ -12,6 +27,13 @@ export interface SystemConfig {
   maxDcaEntries: number;
   recoveryDropPct: number;
   recoveryScoreThreshold: number;
+  tradingFeePct: number;
+  slippageBufferPct: number;
+  minNetProfitTp1Pct: number;
+  minNetProfitTp2Pct: number;
+  positionPlanDays: number;
+  tp2GraceDays: number;
+  entryRetraceBufferPct: number;
 }
 
 export interface SignalRow {
@@ -52,6 +74,23 @@ export interface SignalRow {
   total_position_thb: number | null;
   updated_target1: number | null;
   updated_target2: number | null;
+  lifecycle_status: SignalStatus | null;
+  close_reason: CloseReason;
+  position_plan_started_at: string | null;
+  position_plan_expires_at: string | null;
+  tp2_grace_expires_at: string | null;
+  profit_protection_started_at: string | null;
+  break_even_price: number | null;
+  total_quantity: number | null;
+  remaining_quantity: number | null;
+  target_version: number;
+  realized_gross_profit_usdt: number | null;
+  realized_fees_usdt: number | null;
+  realized_net_profit_usdt: number | null;
+  realized_net_profit_thb: number | null;
+  unrealized_remaining_pnl_usdt: number | null;
+  final_net_profit_usdt: number | null;
+  final_net_profit_thb: number | null;
 }
 
 export interface SignalEventRow {
@@ -124,15 +163,54 @@ export interface PortfolioHeat {
 export interface RecoveryPlan {
   parentSignalId: string;
   dcaLevel: number;
+  recoveryEntryLow: number;
+  recoveryEntryHigh: number;
   recoveryEntryPrice: number;
   previousEntryPrice: number;
   previousPositionUsdt: number;
   newStakeUsdt: number;
   newStakeThb: number;
+  newQuantity: number;
+  newFeeUsdt: number;
+  totalQuantity: number;
+  totalCostUsdt: number;
   averageEntryPrice: number;
+  breakEvenPrice: number;
   totalPositionUsdt: number;
   totalPositionThb: number;
   updatedTarget1: number;
   updatedTarget2: number;
+  expectedNetTp1Usdt: number;
+  expectedNetFullUsdt: number;
+  targetVersion: number;
   score: number;
+}
+
+export interface PositionEntryRow {
+  id: number;
+  signal_id: string;
+  dca_level: number;
+  entry_low: number;
+  entry_high: number;
+  filled_price: number | null;
+  stake_usdt: number;
+  stake_thb: number;
+  quantity: number;
+  fee_usdt: number;
+  entry_hit_at: string | null;
+  created_at: string;
+}
+
+export interface TargetPlanHistoryRow {
+  id: number;
+  signal_id: string;
+  target_version: number;
+  average_entry: number;
+  break_even: number;
+  target1: number;
+  target2: number;
+  expected_net_tp1: number;
+  expected_net_full: number;
+  created_at: string;
+  replaced_at: string | null;
 }
