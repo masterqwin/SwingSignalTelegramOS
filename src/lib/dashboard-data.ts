@@ -7,7 +7,18 @@ import type { SignalEventRow, SignalRow, SignalStatus } from "./types";
 export async function getDashboardData() {
   initSchema();
   const config = getSystemConfig();
-  const activeSignals = getSignalsByStatus(["SETUP", "ENTRY_HIT", "PRE_TARGET_1_MANAGEMENT", "TARGET1_HIT", "PROFIT_PROTECTION", "PRE_TP1_REVIEW_REQUIRED", "HOLD", "NO_MORE_DCA"]);
+  const activeSignals = getSignalsByStatus([
+    "SETUP",
+    "ENTRY_HIT",
+    "PRE_TARGET_1_MANAGEMENT",
+    "TARGET1_HIT",
+    "PROFIT_PROTECTION",
+    "RECOVERY_SIGNAL",
+    "RECOVERY_ENTRY_HIT",
+    "PRE_TP1_REVIEW_REQUIRED",
+    "HOLD",
+    "NO_MORE_DCA"
+  ]);
   const activeExposureThb = activeSignals
     .filter((signal) => !signal.is_debug)
     .reduce((sum, signal) => sum + (signal.total_position_thb || signal.stake_thb), 0);

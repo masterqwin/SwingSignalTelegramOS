@@ -19,7 +19,27 @@ import {
 } from "./analytics";
 import type { Candle, GateTicker, MarketGuardResult, PositionEntryRow, RecoveryPlan, SignalCandidate, SignalRow } from "./types";
 
-const ACTIVE_STATUSES = ["SETUP", "ENTRY_HIT", "PRE_TARGET_1_MANAGEMENT", "TARGET1_HIT", "PROFIT_PROTECTION", "PRE_TP1_REVIEW_REQUIRED", "HOLD", "NO_MORE_DCA"];
+const ACTIVE_STATUSES = [
+  "SETUP",
+  "ENTRY_HIT",
+  "PRE_TARGET_1_MANAGEMENT",
+  "TARGET1_HIT",
+  "PROFIT_PROTECTION",
+  "RECOVERY_SIGNAL",
+  "RECOVERY_ENTRY_HIT",
+  "PRE_TP1_REVIEW_REQUIRED",
+  "HOLD",
+  "NO_MORE_DCA"
+];
+
+export interface LifecycleUpdateResult {
+  events: string[];
+  backfilledEntryHit: number;
+  backfilledTarget1Hit: number;
+  fromStatus: string;
+  toStatus: string;
+  closeReason: string | null;
+}
 
 export async function buildCandidate(
   ticker: GateTicker,
@@ -387,9 +407,12 @@ export function recordSnapshot(ticker: GateTicker) {
     );
 }
 
-export function updateSignalLifecycle(signal: SignalRow, currentPrice: number) {
+export function updateSignalLifecycle(signal: SignalRow, currentPrice: number): LifecycleUpdateResult {
   const config = getSystemConfig();
   const now = new Date();
+  const fromStatus = signal.status;
+  const normalized = normalizeLegacyLifecycle(signal, currentPrice, now, config);
+  signal = normalized.signal;
   const updates: string[] = [];
   const values: unknown[] = [];
   const maxProfitPct = Math.max(signal.max_profit_pct, ((currentPrice - signal.entry_high) / signal.entry_high) * 100);
@@ -419,7 +442,7 @@ export function updateSignalLifecycle(signal: SignalRow, currentPrice: number) {
     const plan = calculatePositionPlan([entry], config);
     if (!plan) {
       console.log(`[lifecycle] skip entry #${signal.signal_id} reason=no_profitable_exit_plan`);
-      return events;
+      return makeLifecycleResult(events, normalized, fromStatus, signal);
     }
     insertPositionEntry(signal.signal_id, entry);
     insertTargetPlan(signal, plan, 1, nowIso);
@@ -536,7 +559,8 @@ export function updateSignalLifecycle(signal: SignalRow, currentPrice: number) {
 
   values.push(signal.signal_id);
   getDb().prepare(`UPDATE signals SET ${updates.join(", ")} WHERE signal_id = ?`).run(...values);
-  return events;
+  const updated = getSignalById(signal.signal_id);
+  return makeLifecycleResult(events, normalized, fromStatus, updated);
 }
 
 export function getOpenSignals() {
@@ -549,6 +573,87 @@ export function getPositionEntries(signalId: string) {
   return getDb().prepare("SELECT * FROM position_entries WHERE signal_id = ? ORDER BY dca_level ASC, id ASC").all(signalId) as PositionEntryRow[];
 }
 
+function normalizeLegacyLifecycle(signal: SignalRow, currentPrice: number, now: Date, config = getSystemConfig()) {
+  let backfilledEntryHit = 0;
+  let backfilledTarget1Hit = 0;
+
+  if (signal.status === "ENTRY_HIT" && signal.entry_hit_at) {
+    const entries = ensurePositionEntries(signal, currentPrice);
+    const totalQuantity = signal.total_quantity || entries.reduce((sum, entry) => sum + entry.quantity, 0);
+    const totalPositionUsdt = signal.total_position_usdt || entries.reduce((sum, entry) => sum + entry.stake_usdt, 0);
+    const totalPositionThb = signal.total_position_thb || entries.reduce((sum, entry) => sum + entry.stake_thb, 0);
+    const averageEntry = signal.average_entry_price || weightedAverage(entries) || (signal.entry_low + signal.entry_high) / 2;
+    const breakEven = signal.break_even_price || averageEntry * (1 + (config.tradingFeePct * 2 + config.slippageBufferPct) / 100);
+    const startedAt = signal.position_plan_started_at || signal.entry_hit_at;
+    const expiresAt = signal.position_plan_expires_at || addDays(new Date(startedAt), config.positionPlanDays).toISOString();
+    getDb()
+      .prepare(
+        `UPDATE signals SET
+          status = 'PRE_TARGET_1_MANAGEMENT',
+          lifecycle_status = 'PRE_TARGET_1_MANAGEMENT',
+          position_plan_started_at = ?,
+          position_plan_expires_at = ?,
+          average_entry_price = COALESCE(average_entry_price, ?),
+          break_even_price = COALESCE(break_even_price, ?),
+          total_quantity = COALESCE(total_quantity, ?),
+          remaining_quantity = COALESCE(remaining_quantity, ?),
+          total_position_usdt = COALESCE(total_position_usdt, ?),
+          total_position_thb = COALESCE(total_position_thb, ?)
+        WHERE signal_id = ?`
+      )
+      .run(startedAt, expiresAt, averageEntry, breakEven, totalQuantity, totalQuantity, totalPositionUsdt, totalPositionThb, signal.signal_id);
+    backfilledEntryHit = 1;
+    signal = getSignalById(signal.signal_id);
+    console.log(`[lifecycle] signal=${signal.signal_id} from=ENTRY_HIT to=PRE_TARGET_1_MANAGEMENT backfill=true`);
+  }
+
+  if (signal.status === "TARGET1_HIT" && signal.target1_hit_at) {
+    const entries = ensurePositionEntries(signal, currentPrice);
+    const totalQuantity = signal.total_quantity || entries.reduce((sum, entry) => sum + entry.quantity, 0);
+    const remainingQuantity = signal.remaining_quantity || totalQuantity * 0.5;
+    const averageEntry = signal.average_entry_price || weightedAverage(entries) || (signal.entry_low + signal.entry_high) / 2;
+    const breakEven = signal.break_even_price || averageEntry * (1 + (config.tradingFeePct * 2 + config.slippageBufferPct) / 100);
+    const target1Leg = calculateExitLeg(entries, signal.target1, 0.5, config);
+    const startedAt = signal.profit_protection_started_at || signal.target1_hit_at;
+    const graceExpiresAt = signal.tp2_grace_expires_at || addDays(new Date(startedAt), config.tp2GraceDays).toISOString();
+    getDb()
+      .prepare(
+        `UPDATE signals SET
+          status = 'PROFIT_PROTECTION',
+          lifecycle_status = 'PROFIT_PROTECTION',
+          profit_protection_started_at = ?,
+          tp2_grace_expires_at = ?,
+          average_entry_price = COALESCE(average_entry_price, ?),
+          break_even_price = COALESCE(break_even_price, ?),
+          total_quantity = COALESCE(total_quantity, ?),
+          remaining_quantity = COALESCE(remaining_quantity, ?),
+          realized_gross_profit_usdt = COALESCE(realized_gross_profit_usdt, ?),
+          realized_fees_usdt = COALESCE(realized_fees_usdt, ?),
+          realized_net_profit_usdt = COALESCE(realized_net_profit_usdt, ?),
+          realized_net_profit_thb = COALESCE(realized_net_profit_thb, ?)
+        WHERE signal_id = ?`
+      )
+      .run(
+        startedAt,
+        graceExpiresAt,
+        averageEntry,
+        breakEven,
+        totalQuantity,
+        remainingQuantity,
+        target1Leg.grossProfitUsdt,
+        target1Leg.feesUsdt,
+        target1Leg.netProfitUsdt,
+        target1Leg.netProfitUsdt * signal.usdthb_rate,
+        signal.signal_id
+      );
+    backfilledTarget1Hit = 1;
+    signal = getSignalById(signal.signal_id);
+    console.log(`[lifecycle] signal=${signal.signal_id} from=TARGET1_HIT to=PROFIT_PROTECTION backfill=true`);
+  }
+
+  return { signal, backfilledEntryHit, backfilledTarget1Hit };
+}
+
 function ensurePositionEntries(signal: SignalRow, currentPrice: number) {
   const existing = getPositionEntries(signal.signal_id);
   if (existing.length) return existing;
@@ -558,7 +663,7 @@ function ensurePositionEntries(signal: SignalRow, currentPrice: number) {
       dcaLevel: signal.dca_level || 1,
       entryLow: signal.entry_low,
       entryHigh: signal.entry_high,
-      filledPrice: signal.average_entry_price || currentPrice || (signal.entry_low + signal.entry_high) / 2,
+      filledPrice: signal.average_entry_price || (signal.entry_low + signal.entry_high) / 2 || currentPrice,
       stakeThb: signal.stake_thb,
       usdthbRate: signal.usdthb_rate,
       createdAt: entryAt
@@ -567,6 +672,28 @@ function ensurePositionEntries(signal: SignalRow, currentPrice: number) {
   );
   insertPositionEntry(signal.signal_id, entry);
   return getPositionEntries(signal.signal_id);
+}
+
+function makeLifecycleResult(
+  events: string[],
+  normalized: { backfilledEntryHit: number; backfilledTarget1Hit: number },
+  fromStatus: string,
+  updated: SignalRow
+): LifecycleUpdateResult {
+  return {
+    events,
+    backfilledEntryHit: normalized.backfilledEntryHit,
+    backfilledTarget1Hit: normalized.backfilledTarget1Hit,
+    fromStatus,
+    toStatus: updated.status,
+    closeReason: updated.close_reason
+  };
+}
+
+function weightedAverage(entries: PositionEntryRow[]) {
+  const quantity = entries.reduce((sum, entry) => sum + entry.quantity, 0);
+  if (!quantity) return 0;
+  return entries.reduce((sum, entry) => sum + (entry.filled_price || 0) * entry.quantity, 0) / quantity;
 }
 
 function insertPositionEntry(signalId: string, entry: Omit<PositionEntryRow, "id" | "signal_id">) {

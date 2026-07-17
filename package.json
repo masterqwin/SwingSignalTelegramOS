@@ -10,6 +10,7 @@
     "db:init": "tsx scripts/db-init.ts",
     "db:seed": "tsx scripts/db-seed.ts",
     "test": "tsx scripts/lifecycle-tests.ts",
+    "lifecycle:uat": "tsx scripts/lifecycle-uat.ts",
     "lint": "next lint",
     "build": "next build"
   },

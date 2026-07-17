@@ -6,6 +6,8 @@ const statusClass: Record<string, string> = {
   TARGET1_HIT: "bg-blue-50 text-blue-700 border-blue-200",
   PRE_TARGET_1_MANAGEMENT: "bg-cyan-50 text-cyan-700 border-cyan-200",
   PROFIT_PROTECTION: "bg-purple-50 text-purple-700 border-purple-200",
+  RECOVERY_SIGNAL: "bg-yellow-50 text-yellow-700 border-yellow-200",
+  RECOVERY_ENTRY_HIT: "bg-yellow-50 text-yellow-800 border-yellow-300",
   TARGET2_HIT: "bg-green-50 text-green-700 border-green-200",
   ENTRY_RETRACE_CLOSED: "bg-orange-50 text-orange-700 border-orange-200",
   TP2_TIMEOUT_CLOSED: "bg-zinc-100 text-zinc-700 border-zinc-200",

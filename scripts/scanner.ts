@@ -40,6 +40,22 @@ async function scanOnce() {
   let signalsCreated = 0;
   let telegramSent = false;
   const candidates: SignalCandidate[] = [];
+  const lifecycleStats = {
+    activeLoaded: 0,
+    checked: 0,
+    backfilledEntryHit: 0,
+    backfilledTarget1Hit: 0,
+    setupCancelled: 0,
+    recoveryCreated: 0,
+    preTp1ReviewRequired: 0,
+    profitProtectionStarted: 0,
+    entryRetraceClosed: 0,
+    tp2TimeoutClosed: 0,
+    fullTargetClosed: 0,
+    errors: 0,
+    slotsBefore: 0,
+    slotsAfter: 0
+  };
 
   for (const pair of missingPairs) {
     console.log(`[scanner] skip ${pair} reason=not_available_on_gateio_spot`);
@@ -47,7 +63,12 @@ async function scanOnce() {
 
   for (const ticker of tickers) recordSnapshot(ticker);
 
-  for (const signal of getOpenSignals()) {
+  const openSignals = getOpenSignals();
+  lifecycleStats.activeLoaded = openSignals.length;
+  lifecycleStats.slotsBefore = getActiveSignalCount();
+
+  for (const signal of openSignals) {
+    lifecycleStats.checked += 1;
     const ticker = tickerByPair.get(signal.pair);
     if (!ticker) {
       console.log(`[scanner] skip lifecycle #${signal.signal_id} ${signal.pair} reason=pair_not_available_on_gateio_spot`);
@@ -55,12 +76,27 @@ async function scanOnce() {
     }
 
     const currentPrice = tickerPrice(ticker);
-    const events = updateSignalLifecycle(signal, currentPrice);
+    const lifecycle = updateSignalLifecycle(signal, currentPrice);
+    lifecycleStats.backfilledEntryHit += lifecycle.backfilledEntryHit;
+    lifecycleStats.backfilledTarget1Hit += lifecycle.backfilledTarget1Hit;
+    if (lifecycle.fromStatus !== lifecycle.toStatus) {
+      console.log(`[lifecycle] signal=${signal.signal_id} from=${lifecycle.fromStatus} to=${lifecycle.toStatus}`);
+    }
+    if (lifecycle.closeReason) {
+      console.log(`[lifecycle] signal=${signal.signal_id} close_reason=${lifecycle.closeReason}`);
+    }
+    const events = lifecycle.events;
     let currentSignal = signal;
     if (events.length) {
       const updated = getDb().prepare("SELECT * FROM signals WHERE signal_id = ?").get(signal.signal_id) as SignalRow;
       currentSignal = updated;
       for (const event of events) {
+        if (event === "CANCEL_SIGNAL") lifecycleStats.setupCancelled += 1;
+        if (event === "PRE_TP1_REVIEW_REQUIRED") lifecycleStats.preTp1ReviewRequired += 1;
+        if (event === "PROFIT_PROTECTION_STARTED") lifecycleStats.profitProtectionStarted += 1;
+        if (event === "ENTRY_RETRACE_CLOSED") lifecycleStats.entryRetraceClosed += 1;
+        if (event === "TP2_TIMEOUT_CLOSED") lifecycleStats.tp2TimeoutClosed += 1;
+        if (event === "TARGET_HIT_2") lifecycleStats.fullTargetClosed += 1;
         const telegram = await recordAndSendEvent(updated, event, currentPrice);
         telegramSent = telegramSent || telegram.ok;
         if (!telegram.ok) console.log(`[scanner] telegram_failed event=${event} #${signal.signal_id} error=${telegram.error}`);
@@ -77,9 +113,25 @@ async function scanOnce() {
       const telegram = await recordAndSendEvent(recovered, "RECOVERY_SIGNAL", recoveryPlan.recoveryEntryPrice);
       telegramSent = telegramSent || telegram.ok;
       if (!telegram.ok) console.log(`[scanner] telegram_failed event=RECOVERY_SIGNAL #${signal.signal_id} error=${telegram.error}`);
+      lifecycleStats.recoveryCreated += 1;
       console.log(`[scanner] recovery #${signal.signal_id} ${signal.pair} dca_level=${recoveryPlan.dcaLevel} score=${recoveryPlan.score}`);
     }
   }
+  lifecycleStats.slotsAfter = getActiveSignalCount();
+  console.log(`[lifecycle] active_loaded=${lifecycleStats.activeLoaded}`);
+  console.log(`[lifecycle] checked=${lifecycleStats.checked}`);
+  console.log(`[lifecycle] backfilled_entry_hit=${lifecycleStats.backfilledEntryHit}`);
+  console.log(`[lifecycle] backfilled_target1_hit=${lifecycleStats.backfilledTarget1Hit}`);
+  console.log(`[lifecycle] setup_cancelled=${lifecycleStats.setupCancelled}`);
+  console.log(`[lifecycle] recovery_created=${lifecycleStats.recoveryCreated}`);
+  console.log(`[lifecycle] pre_tp1_review_required=${lifecycleStats.preTp1ReviewRequired}`);
+  console.log(`[lifecycle] profit_protection_started=${lifecycleStats.profitProtectionStarted}`);
+  console.log(`[lifecycle] entry_retrace_closed=${lifecycleStats.entryRetraceClosed}`);
+  console.log(`[lifecycle] tp2_timeout_closed=${lifecycleStats.tp2TimeoutClosed}`);
+  console.log(`[lifecycle] full_target_closed=${lifecycleStats.fullTargetClosed}`);
+  console.log(`[lifecycle] slots_before=${lifecycleStats.slotsBefore}`);
+  console.log(`[lifecycle] slots_after=${lifecycleStats.slotsAfter}`);
+  console.log(`[lifecycle] errors=${lifecycleStats.errors}`);
 
   const portfolioHeat = calculatePortfolioHeat();
 

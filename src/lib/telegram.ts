@@ -302,16 +302,27 @@ export function formatSignalMessage(signal: SignalRow, eventType: string, curren
   }
 
   if (eventType === "PRE_TP1_REVIEW_REQUIRED") {
+    const startedAt = signal.position_plan_started_at || signal.entry_hit_at || signal.created_at;
+    const elapsedHours = (Date.now() - new Date(startedAt).getTime()) / 36e5;
     return [
-      `🟤 PRE TP1 REVIEW REQUIRED #${signal.signal_id}`,
+      `⚠️ POSITION REVIEW REQUIRED #${signal.signal_id}`,
       ...debugLines,
       `เหรียญ: ${signal.symbol}/USDT`,
-      "แผนยังไม่ถึง TARGET 1 ภายในอายุ Position Plan",
-      "Recovery ไม่ผ่านหรือครบจำนวนไม้แล้ว",
-      "ระบบไม่จำลองปิดเองโดยไม่มี rule และไม่เพิ่มการขายขาดทุนอัตโนมัติ",
+      `สถานะ: เข้าโซนซื้อแล้ว แต่ยังไม่ถึง TARGET 1 ภายใน ${config.positionPlanDays} วัน`,
+      "",
+      `Average Entry: ${formatPrice(signal.average_entry_price || entryAverage)} USDT`,
+      `ราคาปัจจุบัน: ${formatPrice(currentPrice)} USDT`,
+      `DCA Level: ${signal.dca_level || 1}`,
+      `Target 1: ${formatPrice(signal.target1)} USDT`,
+      `เวลาที่เกินแผน: ${elapsedHours.toFixed(1)} ชั่วโมง`,
+      "",
+      "ระบบตรวจแล้ว:",
+      "- Recovery ยังไม่ผ่าน / ครบจำนวน / ไม่เหมาะสม",
+      "- แผนยังไม่ถึงกำไรไม้แรก",
       "",
       "คำสั่ง:",
-      "ทบทวนสถานะด้วยตนเอง และรอสัญญาณ lifecycle ถัดไป"
+      "ทบทวนสถานะใน Gate.io",
+      "ระบบจะยังติดตาม แต่จะไม่สร้าง Recovery มั่ว"
     ].join("\n");
   }
 
