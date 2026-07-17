@@ -1,6 +1,6 @@
 import { calculatePortfolioHeat } from "../src/lib/analytics";
 import { getDb, initSchema } from "../src/lib/db";
-import { fetchSpotTickers } from "../src/lib/gateio";
+import { getMarketProvider } from "../src/lib/providers/provider";
 import { evaluateMarketGuard } from "../src/lib/market-guard";
 import { calculateStats } from "../src/lib/stats";
 import { sendTelegramMessage } from "../src/lib/telegram";
@@ -13,17 +13,18 @@ async function main() {
     | { captured_at: string }
     | undefined;
 
-  let gateOk = false;
+  const provider = getMarketProvider();
+  let providerOk = false;
   let marketGuardLabel = "unknown";
   let marketGuardStatus = "unknown";
   try {
     const tickers = await fetchSpotTickersWithRetry();
-    gateOk = tickers.length > 0;
+    providerOk = tickers.length > 0;
     const marketGuard = await evaluateMarketGuard(tickers);
     marketGuardStatus = marketGuard.status;
     marketGuardLabel = marketGuard.labelTh;
   } catch (error) {
-    console.log(`[health] gateio_failed error=${String(error)}`);
+    console.log(`[health] market_provider_failed provider=${provider.id} error=${String(error)}`);
   }
 
   const message = [
@@ -36,7 +37,8 @@ async function main() {
     `Win Rate: ${stats.winRate.toFixed(1)}%`,
     `Market Guard: ${marketGuardLabel} (${marketGuardStatus})`,
     "Telegram: OK",
-    `Gate.io: ${gateOk ? "OK" : "FAIL"}`,
+    `Market Data Provider: ${provider.displayName}`,
+    `Binance API: ${providerOk ? "OK" : "FAIL"}`,
     "Database: OK"
   ].join("\n");
 
@@ -58,7 +60,7 @@ async function fetchSpotTickersWithRetry() {
   let lastError: unknown;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      return await fetchSpotTickers();
+      return await getMarketProvider().getTickers();
     } catch (error) {
       lastError = error;
       await new Promise((resolve) => setTimeout(resolve, attempt * 750));

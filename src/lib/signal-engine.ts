@@ -1,6 +1,6 @@
 import { getSystemConfig } from "./config";
 import { getDb } from "./db";
-import { fetchCandles, tickerPrice, tickerQuoteVolume } from "./gateio";
+import { getMarketProvider } from "./providers/provider";
 import {
   addDays,
   buildPositionEntry,
@@ -17,7 +17,7 @@ import {
   getSignalQualityLabel,
   isTradableQuality
 } from "./analytics";
-import type { Candle, GateTicker, MarketGuardResult, PositionEntryRow, RecoveryPlan, SignalCandidate, SignalRow } from "./types";
+import type { Candle, MarketTicker, MarketGuardResult, PositionEntryRow, RecoveryPlan, SignalCandidate, SignalRow } from "./types";
 
 const ACTIVE_STATUSES = [
   "SETUP",
@@ -42,20 +42,20 @@ export interface LifecycleUpdateResult {
 }
 
 export async function buildCandidate(
-  ticker: GateTicker,
+  ticker: MarketTicker,
   options: { minScore?: number; debugMode?: boolean; marketGuard?: MarketGuardResult; activeExposureThb?: number } = {}
 ): Promise<SignalCandidate | null> {
   const config = getSystemConfig();
   const minScore = options.minScore ?? 85;
   const debugMode = options.debugMode ?? false;
-  const currentPrice = tickerPrice(ticker);
-  const quoteVolume = tickerQuoteVolume(ticker);
+  const currentPrice = Number(ticker.last);
+  const quoteVolume = Number(ticker.quote_volume);
   const changePct = Number(ticker.change_percentage);
   if (!Number.isFinite(currentPrice) || currentPrice <= 0) return null;
   if (!debugMode && quoteVolume < config.minQuoteVolumeUsdt) return null;
   if (!debugMode && (!Number.isFinite(changePct) || changePct < 2 || changePct > 18)) return null;
 
-  const candles = await fetchCandles(ticker.currency_pair);
+  const candles = await getMarketProvider().getCandles(ticker.currency_pair);
   if (candles.length < 40) return null;
 
   const recent = candles.slice(-48);
@@ -193,7 +193,7 @@ export function getSignalById(signalId: string) {
   return getDb().prepare("SELECT * FROM signals WHERE signal_id = ?").get(signalId) as SignalRow;
 }
 
-export function buildRecoveryPlan(signal: SignalRow, ticker: GateTicker, options: { marketGuard?: MarketGuardResult; activeExposureThb?: number } = {}): RecoveryPlan | null {
+export function buildRecoveryPlan(signal: SignalRow, ticker: MarketTicker, options: { marketGuard?: MarketGuardResult; activeExposureThb?: number } = {}): RecoveryPlan | null {
   const config = getSystemConfig();
   if (config.debugSignal) return null;
   if (signal.status !== "ENTRY_HIT" && signal.status !== "PRE_TARGET_1_MANAGEMENT") return null;
@@ -201,8 +201,8 @@ export function buildRecoveryPlan(signal: SignalRow, ticker: GateTicker, options
   if (signal.target1_hit_at) return null;
   if (signal.market_guard_status === "risk_off" || options.marketGuard?.status === "risk_off") return null;
 
-  const currentPrice = tickerPrice(ticker);
-  const quoteVolume = tickerQuoteVolume(ticker);
+  const currentPrice = Number(ticker.last);
+  const quoteVolume = Number(ticker.quote_volume);
   const changePct = Number(ticker.change_percentage) || 0;
   const currentDcaLevel = signal.dca_level || 1;
   if (currentDcaLevel >= config.maxDcaEntries) return null;
@@ -394,14 +394,14 @@ export function applyRecoveryPlan(signal: SignalRow, plan: RecoveryPlan) {
   return getSignalById(signal.signal_id);
 }
 
-export function recordSnapshot(ticker: GateTicker) {
+export function recordSnapshot(ticker: MarketTicker) {
   getDb()
     .prepare("INSERT INTO price_snapshots (pair, symbol, price, quote_volume_usdt, change_pct_24h, captured_at) VALUES (?, ?, ?, ?, ?, ?)")
     .run(
       ticker.currency_pair,
       ticker.currency_pair.replace("_USDT", ""),
-      tickerPrice(ticker),
-      tickerQuoteVolume(ticker),
+      Number(ticker.last),
+      Number(ticker.quote_volume),
       Number(ticker.change_percentage) || 0,
       new Date().toISOString()
     );

@@ -36,6 +36,11 @@ export interface SystemConfig {
   positionPlanDays: number;
   tp2GraceDays: number;
   entryRetraceBufferPct: number;
+  marketProvider: string;
+  binanceBaseUrl: string;
+  binanceFallbackBaseUrl: string;
+  binanceRequestTimeoutMs: number;
+  binanceMaxRetries: number;
 }
 
 export interface SignalRow {
@@ -103,14 +108,17 @@ export interface SignalEventRow {
   created_at: string;
 }
 
-export interface GateTicker {
+export interface MarketTicker {
   currency_pair: string;
+  provider_symbol?: string;
   last: string;
   quote_volume: string;
   change_percentage: string;
   high_24h: string;
   low_24h: string;
 }
+
+export type GateTicker = MarketTicker;
 
 export interface Candle {
   timestamp: number;

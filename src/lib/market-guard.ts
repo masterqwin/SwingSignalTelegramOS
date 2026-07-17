@@ -1,14 +1,14 @@
-import { fetchCandles } from "./gateio";
-import type { GateTicker, MarketGuardResult } from "./types";
+import { getMarketProvider } from "./providers/provider";
+import type { MarketGuardResult, MarketTicker } from "./types";
 
-export async function evaluateMarketGuard(tickers: GateTicker[]): Promise<MarketGuardResult> {
+export async function evaluateMarketGuard(tickers: MarketTicker[]): Promise<MarketGuardResult> {
   const btc = tickers.find((ticker) => ticker.currency_pair === "BTC_USDT");
   const eth = tickers.find((ticker) => ticker.currency_pair === "ETH_USDT");
   if (!btc || !eth) {
     return {
       status: "caution",
       labelTh: "ระวัง",
-      reason: "market_guard=caution reason=btc_or_eth_ticker_missing",
+      reason: "market_guard=caution market_guard_provider=binance_spot reason=btc_or_eth_ticker_missing",
       confidenceAdjustment: -5,
       blockNewSetups: false
     };
@@ -25,7 +25,7 @@ export async function evaluateMarketGuard(tickers: GateTicker[]): Promise<Market
     return {
       status: "risk_off",
       labelTh: "Risk-Off",
-      reason: `market_guard=risk_off btc24h=${btcChange.toFixed(1)}% eth24h=${ethChange.toFixed(1)}% volume_risk=${volumeRisk}`,
+      reason: `market_guard=risk_off market_guard_provider=${getMarketProvider().id} btc24h=${btcChange.toFixed(1)}% eth24h=${ethChange.toFixed(1)}% volume_risk=${volumeRisk}`,
       confidenceAdjustment: -18,
       blockNewSetups: true
     };
@@ -35,7 +35,7 @@ export async function evaluateMarketGuard(tickers: GateTicker[]): Promise<Market
     return {
       status: "caution",
       labelTh: "ระวัง",
-      reason: `market_guard=caution btc24h=${btcChange.toFixed(1)}% eth24h=${ethChange.toFixed(1)}% volume_risk=${volumeRisk}`,
+      reason: `market_guard=caution market_guard_provider=${getMarketProvider().id} btc24h=${btcChange.toFixed(1)}% eth24h=${ethChange.toFixed(1)}% volume_risk=${volumeRisk}`,
       confidenceAdjustment: -8,
       blockNewSetups: false
     };
@@ -44,15 +44,15 @@ export async function evaluateMarketGuard(tickers: GateTicker[]): Promise<Market
   return {
     status: "normal",
     labelTh: "ปกติ",
-    reason: `market_guard=normal btc24h=${btcChange.toFixed(1)}% eth24h=${ethChange.toFixed(1)}% volume_risk=false`,
+    reason: `market_guard=normal market_guard_provider=${getMarketProvider().id} btc24h=${btcChange.toFixed(1)}% eth24h=${ethChange.toFixed(1)}% volume_risk=false`,
     confidenceAdjustment: 0,
     blockNewSetups: false
   };
 }
 
-async function hasVolumeRisk(pair: string, ticker: GateTicker) {
+async function hasVolumeRisk(pair: string, ticker: MarketTicker) {
   try {
-    const candles = await fetchCandles(pair, 36, "1h");
+    const candles = await getMarketProvider().getCandles(pair, 36, "1h");
     const previous = candles.slice(0, -6);
     const recent = candles.slice(-6);
     if (!previous.length || !recent.length) return false;

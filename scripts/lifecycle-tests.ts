@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { buildPositionEntry, calculateExitLeg, calculatePositionPlan } from "../src/lib/position-lifecycle";
+import { binanceSymbolToInternalPair, internalPairToBinanceSymbol } from "../src/lib/providers/provider";
+import { isTradableUsdtSpot, mapKline, mapTicker24h } from "../src/lib/providers/binance";
 import type { PositionEntryRow, SignalRow, SystemConfig } from "../src/lib/types";
 
 const config: SystemConfig = {
@@ -20,7 +22,12 @@ const config: SystemConfig = {
   minNetProfitTp2Pct: 1.8,
   positionPlanDays: 3,
   tp2GraceDays: 2,
-  entryRetraceBufferPct: 0
+  entryRetraceBufferPct: 0,
+  marketProvider: "binance_spot",
+  binanceBaseUrl: "https://data-api.binance.vision",
+  binanceFallbackBaseUrl: "https://api.binance.com",
+  binanceRequestTimeoutMs: 12000,
+  binanceMaxRetries: 3
 };
 
 const now = "2026-07-16T02:00:00.000Z";
@@ -148,6 +155,17 @@ function run() {
   assert.equal(recoverySameCoinAllowed, true, "TEST 9 recovery of existing coin can still be allowed");
   assert.equal(newSetupAllowed, false, "TEST 9 new setup blocked when 5 active coins are used");
 
+
+  assert.equal(internalPairToBinanceSymbol("ZEC_USDT"), "ZECUSDT", "TEST 11 Binance pair mapper internal -> provider");
+  assert.equal(binanceSymbolToInternalPair("ZECUSDT"), "ZEC_USDT", "TEST 11 Binance pair mapper provider -> internal");
+  assert.equal(isTradableUsdtSpot({ symbol: "ZECUSDT", status: "TRADING", baseAsset: "ZEC", quoteAsset: "USDT", isSpotTradingAllowed: true, permissions: ["SPOT"] }), true, "TEST 12 Binance exchangeInfo allows spot USDT");
+  assert.equal(isTradableUsdtSpot({ symbol: "BTCUPUSDT", status: "TRADING", baseAsset: "BTCUP", quoteAsset: "USDT", isSpotTradingAllowed: true, permissions: ["SPOT"] }), false, "TEST 12 Binance exchangeInfo filters leveraged tokens");
+  const mappedTicker = mapTicker24h({ symbol: "ETHUSDT", lastPrice: "3500", quoteVolume: "123456", priceChangePercent: "2.5", highPrice: "3600", lowPrice: "3400" });
+  assert.equal(mappedTicker?.currency_pair, "ETH_USDT", "TEST 13 Binance ticker/24hr maps pair");
+  assert.equal(mappedTicker?.last, "3500", "TEST 13 Binance ticker/24hr maps last price");
+  const mappedKline = mapKline([1710000000000, "10", "12", "9", "11", "100", 1710003599999, "1100"]);
+  assert.equal(mappedKline.close, 11, "TEST 14 Binance kline maps close");
+  assert.equal(mappedKline.volume, 1100, "TEST 14 Binance kline maps quote volume");
   console.log("All lifecycle tests passed.");
 }
 

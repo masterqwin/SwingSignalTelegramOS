@@ -1,6 +1,6 @@
 import { getSystemConfig } from "../src/lib/config";
 import { getDb, initSchema } from "../src/lib/db";
-import { fetchSpotTickers, tickerPrice } from "../src/lib/gateio";
+import { getMarketProvider } from "../src/lib/providers/provider";
 import { calculatePortfolioHeat } from "../src/lib/analytics";
 import { evaluateMarketGuard } from "../src/lib/market-guard";
 import {
@@ -17,7 +17,7 @@ import {
 } from "../src/lib/signal-engine";
 import { persistStats } from "../src/lib/stats";
 import { recordAndSendEvent } from "../src/lib/telegram";
-import type { GateTicker, SignalCandidate, SignalRow } from "../src/lib/types";
+import type { MarketTicker, SignalCandidate, SignalRow } from "../src/lib/types";
 
 initSchema();
 const config = getSystemConfig();
@@ -26,12 +26,22 @@ async function scanOnce() {
   console.log(`[scanner] ${new Date().toISOString()} scan started`);
   const universe = getDb().prepare("SELECT pair FROM coin_universe WHERE enabled = 1").all() as Array<{ pair: string }>;
   const allowed = new Set(universe.map((row) => row.pair));
-  const allTickers = await fetchSpotTickers();
+  const provider = getMarketProvider();
+  console.log(`[market] provider=${provider.id}`);
+  const allTickers = await provider.getTickers();
   const marketGuard = await evaluateMarketGuard(allTickers);
   console.log(`[scanner] ${marketGuard.reason}`);
   const allTickerPairs = new Set(allTickers.map((ticker) => ticker.currency_pair));
   const tickers = allTickers.filter((ticker) => allowed.has(ticker.currency_pair));
-  const tickerByPair = new Map<string, GateTicker>(tickers.map((ticker) => [ticker.currency_pair, ticker]));
+  const providerStats = provider.getStats();
+  console.log(`[market] base_url=${providerStats.baseUrl}`);
+  console.log(`[market] exchange_symbols=${providerStats.exchangeSymbols}`);
+  console.log(`[market] usdt_spot_symbols=${providerStats.usdtSpotSymbols}`);
+  console.log(`[market] tickers_loaded=${providerStats.tickersLoaded}`);
+  console.log(`[market] fallback_used=${providerStats.fallbackUsed}`);
+  console.log(`[market] rate_limit_retries=${providerStats.rateLimitRetries}`);
+  console.log(`[market] errors=${providerStats.errors}`);
+  const tickerByPair = new Map<string, MarketTicker>(tickers.map((ticker) => [ticker.currency_pair, ticker]));
   const missingPairs = universe.map((row) => row.pair).filter((pair) => !allTickerPairs.has(pair));
 
   let skipped = missingPairs.length;
@@ -58,7 +68,7 @@ async function scanOnce() {
   };
 
   for (const pair of missingPairs) {
-    console.log(`[scanner] skip ${pair} reason=not_available_on_gateio_spot`);
+    console.log(`[scanner] skip ${pair} reason=not_available_on_market_provider`);
   }
 
   for (const ticker of tickers) recordSnapshot(ticker);
@@ -71,11 +81,11 @@ async function scanOnce() {
     lifecycleStats.checked += 1;
     const ticker = tickerByPair.get(signal.pair);
     if (!ticker) {
-      console.log(`[scanner] skip lifecycle #${signal.signal_id} ${signal.pair} reason=pair_not_available_on_gateio_spot`);
+      console.log(`[scanner] skip lifecycle #${signal.signal_id} ${signal.pair} reason=pair_not_available_on_market_provider`);
       continue;
     }
 
-    const currentPrice = tickerPrice(ticker);
+    const currentPrice = Number(ticker.last);
     const lifecycle = updateSignalLifecycle(signal, currentPrice);
     lifecycleStats.backfilledEntryHit += lifecycle.backfilledEntryHit;
     lifecycleStats.backfilledTarget1Hit += lifecycle.backfilledTarget1Hit;

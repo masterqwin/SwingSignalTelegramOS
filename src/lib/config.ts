@@ -8,6 +8,12 @@ function num(name: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function str(name: string, fallback: string) {
+  loadLocalEnv();
+  const value = process.env[name];
+  return value && value.trim() ? value.trim() : fallback;
+}
+
 function bool(name: string, fallback: boolean) {
   loadLocalEnv();
   const value = process.env[name];
@@ -35,7 +41,12 @@ export function getSystemConfig(): SystemConfig {
     minNetProfitTp2Pct: num("MIN_NET_PROFIT_TP2_PCT", 1.8),
     positionPlanDays: num("POSITION_PLAN_DAYS", 3),
     tp2GraceDays: num("TP2_GRACE_DAYS", 2),
-    entryRetraceBufferPct: num("ENTRY_RETRACE_BUFFER_PCT", 0)
+    entryRetraceBufferPct: num("ENTRY_RETRACE_BUFFER_PCT", 0),
+    marketProvider: str("MARKET_PROVIDER", "binance_spot"),
+    binanceBaseUrl: str("BINANCE_BASE_URL", "https://data-api.binance.vision"),
+    binanceFallbackBaseUrl: str("BINANCE_FALLBACK_BASE_URL", "https://api.binance.com"),
+    binanceRequestTimeoutMs: num("BINANCE_REQUEST_TIMEOUT_MS", 12000),
+    binanceMaxRetries: num("BINANCE_MAX_RETRIES", 3)
   };
 }
 
