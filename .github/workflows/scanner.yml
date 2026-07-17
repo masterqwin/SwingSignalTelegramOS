@@ -2,7 +2,7 @@ name: SwingSignal Scanner
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,13 +15,15 @@ concurrency:
 jobs:
   scanner-once:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       USDTHB_RATE: ${{ secrets.USDTHB_RATE }}
+      MARKET_PROVIDER: binance_spot
+      DEBUG_SIGNAL: "false"
       SIGNAL_EXPIRY_DAYS: 3
-      SCAN_INTERVAL_MINUTES: 5
+      SCAN_INTERVAL_MINUTES: 15
       MAX_ACTIVE_SIGNALS: 5
       DEFAULT_STAKE_THB: 20000
       STARTING_CAPITAL_THB: 200000
@@ -36,40 +38,31 @@ jobs:
       TP2_GRACE_DAYS: 2
       ENTRY_RETRACE_BUFFER_PCT: 0
       DATABASE_PATH: ./data/swing_signal.sqlite
-      DEBUG_SIGNAL: ${{ vars.DEBUG_SIGNAL || secrets.DEBUG_SIGNAL || 'false' }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Initialize database
-        run: npm run db:init
-
-      - name: Seed coin universe
-        run: npm run db:seed
-
-      - name: Run scanner once
-        run: npm run scanner:once
-
-      - name: Commit scanner state
+      - run: npm ci
+      - run: npm run db:init
+      - run: npm run db:seed
+      - run: npm run scanner:once
+      - name: Commit meaningful scanner state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/swing_signal.sqlite
           if git diff --cached --quiet; then
-            echo "[scanner] no SQLite state changes to commit"
+            echo "[persistence] meaningful_change=false"
             exit 0
           fi
-          git commit -m "Update scanner state [skip ci]"
-          git pull --rebase
-          git push
+          echo "[persistence] meaningful_change=true"
+          for i in 1 2 3; do
+            git commit -m "Update scanner state [skip ci]" || true
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          exit 1

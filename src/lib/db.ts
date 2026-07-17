@@ -172,6 +172,31 @@ export function initSchema() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      signal_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      message_th TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      error_category TEXT,
+      telegram_http_status INTEGER,
+      sent_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS monthly_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_month TEXT NOT NULL UNIQUE,
+      message_th TEXT NOT NULL,
+      status TEXT NOT NULL,
+      sent_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS target_plan_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       signal_id TEXT NOT NULL,
@@ -193,6 +218,8 @@ export function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_recovery_parent ON recovery_entries(parent_signal_id);
     CREATE INDEX IF NOT EXISTS idx_position_entries_signal ON position_entries(signal_id);
     CREATE INDEX IF NOT EXISTS idx_target_plan_signal ON target_plan_history(signal_id, target_version);
+    CREATE INDEX IF NOT EXISTS idx_deliveries_status ON notification_deliveries(status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_monthly_reports_month ON monthly_reports(report_month);
   `);
   ensureColumn(database, "signals", "is_debug", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "signals", "parent_signal_id", "TEXT");
@@ -224,6 +251,15 @@ export function initSchema() {
   ensureColumn(database, "signals", "unrealized_remaining_pnl_usdt", "REAL");
   ensureColumn(database, "signals", "final_net_profit_usdt", "REAL");
   ensureColumn(database, "signals", "final_net_profit_thb", "REAL");
+  ensureColumn(database, "signals", "market_provider", "TEXT");
+  ensureColumn(database, "signals", "provider_version", "TEXT");
+  ensureColumn(database, "signals", "source_symbol", "TEXT");
+  ensureColumn(database, "signals", "provider_migrated_at", "TEXT");
+  ensureColumn(database, "signals", "migration_reference_price", "REAL");
+  ensureColumn(database, "signals", "migration_new_price", "REAL");
+  ensureColumn(database, "signals", "migration_price_diff_pct", "REAL");
+  ensureColumn(database, "signals", "provider_migration_status", "TEXT");
+  database.exec("UPDATE signals SET market_provider = COALESCE(market_provider, CASE WHEN status IN (\'CANCELLED\',\'CLOSED\',\'TARGET2_HIT\',\'ENTRY_RETRACE_CLOSED\',\'TP2_TIMEOUT_CLOSED\') THEN \'gateio_spot\' ELSE \'gateio_spot\' END), provider_version = COALESCE(provider_version, CASE WHEN market_provider = \'binance_spot\' THEN \'binance_spot_v1\' ELSE \'gateio_spot_legacy\' END), source_symbol = COALESCE(source_symbol, pair) WHERE market_provider IS NULL OR provider_version IS NULL OR source_symbol IS NULL;");
   const legacyRows = database.prepare("SELECT COUNT(*) as count FROM signals WHERE confidence_pct = 0 AND quality_label = 'C'").get() as { count: number };
   if (legacyRows.count > 0) {
     database.exec(`

@@ -33,6 +33,7 @@ export interface MarketProvider {
   getCandles(pair: string, limit?: number, interval?: string): Promise<Candle[]>;
   getCurrentPrices(pairs?: string[]): Promise<Map<string, number>>;
   getMarketGuardData(): Promise<MarketTicker[]>;
+  getTradablePairs(): Promise<Set<string>>;
   getStats(): ProviderStats;
 }
 

@@ -12,7 +12,13 @@
     "test": "tsx scripts/lifecycle-tests.ts",
     "lifecycle:uat": "tsx scripts/lifecycle-uat.ts",
     "lint": "next lint",
-    "build": "next build"
+    "build": "next build",
+    "telegram:test": "tsx scripts/telegram-test.ts",
+    "telegram:retry": "tsx scripts/telegram-retry.ts",
+    "provider:uat": "tsx scripts/provider-uat.ts",
+    "telegram:uat": "tsx scripts/telegram-uat.ts",
+    "report:monthly": "tsx scripts/monthly-report.ts",
+    "monthly-report:uat": "tsx scripts/monthly-report-uat.ts"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

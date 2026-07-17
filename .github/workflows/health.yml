@@ -16,6 +16,7 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       USDTHB_RATE: ${{ secrets.USDTHB_RATE }}
+      MARKET_PROVIDER: binance_spot
       SIGNAL_EXPIRY_DAYS: 3
       SCAN_INTERVAL_MINUTES: 5
       MAX_ACTIVE_SIGNALS: 5

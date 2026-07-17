@@ -39,6 +39,9 @@ async function main() {
     "Telegram: OK",
     `Market Data Provider: ${provider.displayName}`,
     `Binance API: ${providerOk ? "OK" : "FAIL"}`,
+    `Pending Telegram: ${telegramCounts().pending}`,
+    `Failed Telegram: ${telegramCounts().failed}`,
+    `Last successful notification: ${telegramCounts().lastSent || "none"}`,
     "Database: OK"
   ].join("\n");
 
@@ -50,6 +53,13 @@ async function main() {
   }
 
   console.log(message);
+}
+
+function telegramCounts() {
+  const pending = getDb().prepare("SELECT COUNT(*) as count FROM notification_deliveries WHERE status IN ('PENDING','RETRY_PENDING')").get() as { count: number };
+  const failed = getDb().prepare("SELECT COUNT(*) as count FROM notification_deliveries WHERE status IN ('FAILED','DEAD_LETTER')").get() as { count: number };
+  const last = getDb().prepare("SELECT sent_at FROM notification_deliveries WHERE status = 'SENT' ORDER BY sent_at DESC LIMIT 1").get() as { sent_at: string } | undefined;
+  return { pending: pending.count, failed: failed.count, lastSent: last?.sent_at ? formatThaiDateTime(new Date(last.sent_at)) : null };
 }
 
 function formatThb(value: number) {

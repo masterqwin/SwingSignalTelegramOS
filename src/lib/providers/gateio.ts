@@ -23,6 +23,7 @@ export const gateioSpotProvider: MarketProvider = {
   getCandles,
   getCurrentPrices,
   getMarketGuardData,
+  getTradablePairs,
   getStats: () => ({ ...stats })
 };
 
@@ -86,6 +87,11 @@ export async function getCurrentPrices(pairs?: string[]): Promise<Map<string, nu
   }
   stats.currentPricesLoaded = prices.size;
   return prices;
+}
+
+export async function getTradablePairs() {
+  const exchange = await getExchangeInfo();
+  return new Set(exchange.map((item) => item.pair));
 }
 
 export async function getMarketGuardData() {

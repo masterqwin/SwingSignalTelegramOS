@@ -2,7 +2,7 @@
 
 Local V1 crypto swing/range signal and paper-tracking system for Team SBP.
 
-This project scans public Gate.io Spot market data, finds rule-based pullback buy-limit setups, sends Thai Telegram alerts, tracks every signal lifecycle, and records objective performance stats. It does **not** auto-trade, does **not** require exchange private API keys, and does **not** provide financial guarantees.
+This project scans public Binance Spot market data, finds rule-based pullback buy-limit setups, sends Thai Telegram alerts, tracks every signal lifecycle, and records objective performance stats. It does **not** auto-trade, does **not** require exchange private API keys, and does **not** provide financial guarantees.
 
 ## Setup
 
@@ -46,7 +46,7 @@ In another terminal:
 npm run scanner
 ```
 
-The scanner loops every `SCAN_INTERVAL_MINUTES`, fetches Gate.io public tickers/candles, updates SQLite, sends Thai Telegram lifecycle messages, and never places orders.
+The scanner loops every `SCAN_INTERVAL_MINUTES`, fetches Binance Spot public tickers/candles, updates SQLite, sends Thai Telegram lifecycle messages, and never places orders.
 
 ## Telegram Setup
 
@@ -56,9 +56,9 @@ The scanner loops every `SCAN_INTERVAL_MINUTES`, fetches Gate.io public tickers/
 4. Put your chat id or group id in `TELEGRAM_CHAT_ID`.
 5. Start the dashboard and use Settings > test Telegram.
 
-## Telegram จะแสดงทั้ง THB และ USDT เพื่อใช้งานกับ Gate.io
+## Telegram จะแสดงทั้ง THB และ USDT เพื่อใช้งานกับ Binance
 
-ข้อความ Telegram ของ SETUP และ ENTRY HIT ถูกจัดเป็นใบคำสั่งเทรดสำหรับใช้งานบน Gate.io โดยตรง:
+ข้อความ Telegram ของ SETUP และ ENTRY HIT ถูกจัดเป็นใบคำสั่งเทรดสำหรับใช้งานบน Binance โดยตรง:
 
 - ราคาเข้าและเป้าขายใช้ USDT เป็นหลัก พร้อมราคาเงินบาทประกอบ
 - ทุนแนะนำแสดงทั้งบาทและ USDT
@@ -68,7 +68,7 @@ The scanner loops every `SCAN_INTERVAL_MINUTES`, fetches Gate.io public tickers/
 
 ## วิธีใช้งานจริง
 
-ระบบนี้เป็น Telegram-first: หัวใจหลักคือ `npm run scanner` ที่อ่าน Gate.io public live data, สร้าง signal, ส่ง Telegram, และ paper-track lifecycle ลง SQLite. Dashboard มีไว้ดูสถิติและประวัติจาก SQLite เท่านั้น
+ระบบนี้เป็น Telegram-first: หัวใจหลักคือ `npm run scanner` ที่อ่าน Binance Spot public live data, สร้าง signal, ส่ง Telegram, และ paper-track lifecycle ลง SQLite. Dashboard มีไว้ดูสถิติและประวัติจาก SQLite เท่านั้น
 
 ### 1. ใส่ Telegram token/chat id
 
@@ -90,7 +90,7 @@ DEFAULT_STAKE_THB=20000
 STARTING_CAPITAL_THB=200000
 ```
 
-V1 ไม่ใช้ exchange API key และไม่มีการส่ง order ไป Gate.io
+V1 ไม่ใช้ exchange API key และไม่มีการส่ง order ไป Binance
 
 ### 2. ทดสอบ Telegram
 
@@ -139,15 +139,15 @@ Scanner จะ log ภาพรวมประมาณนี้:
 [scanner] scanned=98 skipped=2 duplicate_skipped=1 capacity_skipped=0 signals_created=1 active_signals=3
 ```
 
-ถ้า pair ไม่มีบน Gate.io Spot จะ skip พร้อมเหตุผล `reason=not_available_on_gateio_spot`
+ถ้า pair ไม่มีบน Binance Spot จะ skip พร้อมเหตุผล `reason=not_available_on_binance_spot`
 
 ### 5. วิธีดู log
 
 ดู log จาก terminal ที่รัน `npm run scanner` โดยตรง:
 
 - `universe` = จำนวนคู่เหรียญที่เปิดใช้งานใน `coin_universe`
-- `scanned` = จำนวนคู่ที่พบใน Gate.io public tickers และถูกสแกน
-- `skipped` = คู่ที่ไม่เข้าเงื่อนไขหรือไม่มีบน Gate.io
+- `scanned` = จำนวนคู่ที่พบใน Binance Spot public tickers และถูกสแกน
+- `skipped` = คู่ที่ไม่เข้าเงื่อนไขหรือไม่มีบน Binance
 - `duplicate_skipped` = pair ที่มี active signal อยู่แล้ว
 - `signals_created` = signal ใหม่ที่ถูกสร้างและส่ง Telegram
 - `active_signals` = จำนวน SETUP/ENTRY/TARGET1/HOLD ที่ยัง active
@@ -156,7 +156,7 @@ Scanner จะ log ภาพรวมประมาณนี้:
 
 - `SETUP SIGNAL` = ระบบพบ pullback buy-limit setup คะแนน >= 85 และส่งแผนตั้ง Buy Limit
 - `ENTRY HIT` = ราคาปัจจุบันลงถึงโซน `entry_low-entry_high` ภายใน 3 วัน ให้ผู้ใช้ตรวจเองว่า Buy Limit fill หรือยัง พร้อมแผนขาย
-- `CANCEL SIGNAL` = ครบ 3 วันแล้วยังไม่มี ENTRY HIT ให้ยกเลิก Buy Limit ใน Gate.io และรอสัญญาณใหม่
+- `CANCEL SIGNAL` = ครบ 3 วันแล้วยังไม่มี ENTRY HIT ให้ยกเลิก Buy Limit ใน Binance และรอสัญญาณใหม่
 - `TARGET 1 HIT` = หลัง ENTRY HIT ราคาแตะ target1 ระบบบันทึกผลจำลองไม้แรก
 - `TARGET 2 HIT` = ราคาแตะ target2 ระบบบันทึกผลจำลองไม้สอง
 - `SIGNAL CLOSED` = signal จำลองปิดครบ lifecycle แล้ว
@@ -255,7 +255,7 @@ npm run scanner:once
 
 เมื่อ `DEBUG_SIGNAL=true` scanner จะ:
 
-- สแกน Gate.io public live data จริง
+- สแกน Binance Spot public live data จริง
 - คัด candidate ทั้งหมดแล้วเรียงคะแนนสูงสุด
 - เลือก top candidate 1 ตัวต่อรอบ แม้คะแนนยังไม่ถึง threshold 85
 - สร้าง signal/event ที่มี `[DEBUG]` ชัดเจน
@@ -353,7 +353,7 @@ Telegram SETUP จะแสดงสถานะพอร์ต เช่น ใ
 
 ## Market Guard คืออะไร
 
-Market Guard ใช้ Gate.io public data ของ `BTC_USDT` และ `ETH_USDT` เพื่อดูภาพรวมตลาดก่อนสร้าง SETUP ใหม่:
+Market Guard ใช้ Binance Spot public data ของ `BTC_USDT` และ `ETH_USDT` เพื่อดูภาพรวมตลาดก่อนสร้าง SETUP ใหม่:
 
 - `normal`: ตลาดปกติ
 - `caution`: ลด confidence ของสัญญาณใหม่
@@ -391,7 +391,7 @@ Entry Hit Rate: ...
 Win Rate: ...
 Market Guard: ...
 Telegram: OK
-Gate.io: OK
+Binance: OK
 Database: OK
 ```
 
@@ -481,7 +481,7 @@ ENTRY_RETRACE_BUFFER_PCT=0
 - `src/app` - Next.js App Router dashboard pages and API routes.
 - `src/components` - Thai dashboard UI components.
 - `src/lib/db.ts` - SQLite connection and schema helpers.
-- `src/lib/gateio.ts` - Gate.io public market data client.
+- `src/lib/gateio.ts` - Binance Spot public market data client.
 - `src/lib/analytics.ts` - confidence, position sizing, portfolio heat, ranking helpers.
 - `src/lib/market-guard.ts` - BTC/ETH public market guard.
 - `src/lib/position-lifecycle.ts` - weighted entries, fee-adjusted targets, profit protection math.
@@ -489,7 +489,7 @@ ENTRY_RETRACE_BUFFER_PCT=0
 - `src/lib/telegram.ts` - Thai Telegram message formatting and sender.
 - `src/lib/stats.ts` - objective paper-tracking performance stats.
 - `scripts/db-init.ts` - creates SQLite tables.
-- `scripts/db-seed.ts` - seeds config and Gate.io allowlist universe.
+- `scripts/db-seed.ts` - seeds config and Binance allowlist universe.
 - `scripts/scanner.ts` - background worker.
 - `scripts/health.ts` - manual/GitHub Actions daily health summary.
 - `data/coin-allowlist.json` - configurable V1 credible coin universe.

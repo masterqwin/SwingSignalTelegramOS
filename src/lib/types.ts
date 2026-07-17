@@ -13,7 +13,9 @@ export type SignalStatus =
   | "CANCELLED"
   | "CLOSED"
   | "HOLD"
-  | "NO_MORE_DCA";
+  | "NO_MORE_DCA"
+  | "PROVIDER_MIGRATION_REVIEW_REQUIRED"
+  | "PROVIDER_UNAVAILABLE_REVIEW";
 
 export type CloseReason = "FULL_TARGET_CLOSED" | "ENTRY_RETRACE_CLOSED" | "TP2_TIMEOUT_CLOSED" | "CANCELLED" | null;
 
@@ -41,6 +43,12 @@ export interface SystemConfig {
   binanceFallbackBaseUrl: string;
   binanceRequestTimeoutMs: number;
   binanceMaxRetries: number;
+  maxProviderMigrationPriceDiffPct: number;
+  universeMaxPairs: number;
+  min24hQuoteVolumeUsdt: number;
+  universeRefreshHours: number;
+  telegramTimeoutMs: number;
+  telegramMaxRetries: number;
 }
 
 export interface SignalRow {
@@ -98,6 +106,14 @@ export interface SignalRow {
   unrealized_remaining_pnl_usdt: number | null;
   final_net_profit_usdt: number | null;
   final_net_profit_thb: number | null;
+  market_provider: string | null;
+  provider_version: string | null;
+  source_symbol: string | null;
+  provider_migrated_at: string | null;
+  migration_reference_price: number | null;
+  migration_new_price: number | null;
+  migration_price_diff_pct: number | null;
+  provider_migration_status: string | null;
 }
 
 export interface SignalEventRow {
@@ -223,4 +239,23 @@ export interface TargetPlanHistoryRow {
   expected_net_full: number;
   created_at: string;
   replaced_at: string | null;
+}
+
+
+export type NotificationDeliveryStatus = "PENDING" | "SENT" | "FAILED" | "RETRY_PENDING" | "DEAD_LETTER";
+
+export interface NotificationDeliveryRow {
+  id: number;
+  idempotency_key: string;
+  signal_id: string;
+  event_type: string;
+  message_th: string;
+  status: NotificationDeliveryStatus;
+  attempts: number;
+  last_error: string | null;
+  error_category: string | null;
+  telegram_http_status: number | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

@@ -15,7 +15,9 @@ const statusClass: Record<string, string> = {
   CANCELLED: "bg-red-50 text-red-700 border-red-200",
   CLOSED: "bg-slate-100 text-slate-700 border-slate-200",
   HOLD: "bg-orange-50 text-orange-700 border-orange-200",
-  NO_MORE_DCA: "bg-zinc-100 text-zinc-700 border-zinc-200"
+  NO_MORE_DCA: "bg-zinc-100 text-zinc-700 border-zinc-200",
+  PROVIDER_MIGRATION_REVIEW_REQUIRED: "bg-amber-50 text-amber-800 border-amber-300",
+  PROVIDER_UNAVAILABLE_REVIEW: "bg-red-50 text-red-800 border-red-300"
 };
 
 export function SignalTable({ signals, compact = false }: { signals: SignalRow[]; compact?: boolean }) {
@@ -40,6 +42,7 @@ export function SignalTable({ signals, compact = false }: { signals: SignalRow[]
             <th>Score</th>
             <th>Confidence</th>
             <th>Quality</th>
+            <th>Provider</th>
             <th>DCA</th>
             <th>Timer</th>
             <th>Remaining</th>
@@ -88,4 +91,14 @@ export function SignalTable({ signals, compact = false }: { signals: SignalRow[]
 function formatTimer(signal: SignalRow) {
   const timer = signal.status === "PROFIT_PROTECTION" ? signal.tp2_grace_expires_at : signal.position_plan_expires_at || signal.expires_at;
   return timer ? new Date(timer).toLocaleString("th-TH", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
+}
+
+
+function ProviderBadge({ signal }: { signal: SignalRow }) {
+  const label = signal.provider_migration_status && signal.provider_migration_status !== "PROVIDER_MIGRATED"
+    ? "Migration Review"
+    : signal.market_provider === "gateio_spot"
+      ? "Legacy Gate.io"
+      : "Binance Spot";
+  return <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">{label}</span>;
 }

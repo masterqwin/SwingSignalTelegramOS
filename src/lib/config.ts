@@ -46,7 +46,13 @@ export function getSystemConfig(): SystemConfig {
     binanceBaseUrl: str("BINANCE_BASE_URL", "https://data-api.binance.vision"),
     binanceFallbackBaseUrl: str("BINANCE_FALLBACK_BASE_URL", "https://api.binance.com"),
     binanceRequestTimeoutMs: num("BINANCE_REQUEST_TIMEOUT_MS", 12000),
-    binanceMaxRetries: num("BINANCE_MAX_RETRIES", 3)
+    binanceMaxRetries: num("BINANCE_MAX_RETRIES", 3),
+    maxProviderMigrationPriceDiffPct: num("MAX_PROVIDER_MIGRATION_PRICE_DIFF_PCT", 2),
+    universeMaxPairs: num("UNIVERSE_MAX_PAIRS", 120),
+    min24hQuoteVolumeUsdt: num("MIN_24H_QUOTE_VOLUME_USDT", 10000000),
+    universeRefreshHours: num("UNIVERSE_REFRESH_HOURS", 6),
+    telegramTimeoutMs: num("TELEGRAM_TIMEOUT_MS", 10000),
+    telegramMaxRetries: num("TELEGRAM_MAX_RETRIES", 3)
   };
 }
 

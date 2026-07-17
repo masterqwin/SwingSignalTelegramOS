@@ -16,7 +16,9 @@ import {
   updateSignalLifecycle
 } from "../src/lib/signal-engine";
 import { persistStats } from "../src/lib/stats";
-import { recordAndSendEvent } from "../src/lib/telegram";
+import { recordAndSendEvent, retryPendingNotifications } from "../src/lib/telegram";
+import { migrateSignalProvider } from "../src/lib/provider-migration";
+import { selectUniverseTickers } from "../src/lib/universe";
 import type { MarketTicker, SignalCandidate, SignalRow } from "../src/lib/types";
 
 initSchema();
@@ -24,15 +26,27 @@ const config = getSystemConfig();
 
 async function scanOnce() {
   console.log(`[scanner] ${new Date().toISOString()} scan started`);
+  const retryResults = await retryPendingNotifications(5);
+  console.log(`[telegram] retry_pending_processed=${retryResults.length}`);
   const universe = getDb().prepare("SELECT pair FROM coin_universe WHERE enabled = 1").all() as Array<{ pair: string }>;
   const allowed = new Set(universe.map((row) => row.pair));
   const provider = getMarketProvider();
   console.log(`[market] provider=${provider.id}`);
   const allTickers = await provider.getTickers();
-  const marketGuard = await evaluateMarketGuard(allTickers);
+  const guardTickers = await provider.getMarketGuardData();
+  const marketGuard = await evaluateMarketGuard(guardTickers);
   console.log(`[scanner] ${marketGuard.reason}`);
+  const openSignals = getOpenSignals();
+  const universeSelection = selectUniverseTickers({ allTickers, allowlistPairs: allowed, activeSignals: openSignals });
+  console.log(`[universe] provider_pairs=${universeSelection.logs.providerPairs}`);
+  console.log(`[universe] trading_usdt_pairs=${universeSelection.logs.tradingUsdtPairs}`);
+  console.log(`[universe] liquidity_passed=${universeSelection.logs.liquidityPassed}`);
+  console.log(`[universe] selected_candidates=${universeSelection.logs.selectedCandidates}`);
+  console.log(`[universe] active_pairs_forced=${universeSelection.logs.activePairsForced}`);
+  console.log(`[universe] excluded_stable=${universeSelection.logs.excludedStable}`);
+  console.log(`[universe] excluded_leveraged=${universeSelection.logs.excludedLeveraged}`);
   const allTickerPairs = new Set(allTickers.map((ticker) => ticker.currency_pair));
-  const tickers = allTickers.filter((ticker) => allowed.has(ticker.currency_pair));
+  const tickers = universeSelection.tickers;
   const providerStats = provider.getStats();
   console.log(`[market] base_url=${providerStats.baseUrl}`);
   console.log(`[market] exchange_symbols=${providerStats.exchangeSymbols}`);
@@ -72,21 +86,31 @@ async function scanOnce() {
   }
 
   for (const ticker of tickers) recordSnapshot(ticker);
-
-  const openSignals = getOpenSignals();
   lifecycleStats.activeLoaded = openSignals.length;
   lifecycleStats.slotsBefore = getActiveSignalCount();
 
   for (const signal of openSignals) {
     lifecycleStats.checked += 1;
     const ticker = tickerByPair.get(signal.pair);
+    const migration = migrateSignalProvider(signal, ticker);
+    let currentSignalForLifecycle = migration.signal;
+    if (migration.eventType) {
+      const telegram = await recordAndSendEvent(migration.signal, migration.eventType, ticker ? Number(ticker.last) : migration.signal.current_price_at_signal);
+      telegramSent = telegramSent || telegram.ok;
+      console.log(`[provider_migration] signal=${signal.signal_id} status=${migration.signal.provider_migration_status} diff=${migration.diffPct ?? "n/a"}`);
+      if (migration.eventType !== "PROVIDER_MIGRATED") continue;
+    }
     if (!ticker) {
       console.log(`[scanner] skip lifecycle #${signal.signal_id} ${signal.pair} reason=pair_not_available_on_market_provider`);
       continue;
     }
+    if (currentSignalForLifecycle.provider_migration_status === "PROVIDER_MIGRATION_REVIEW_REQUIRED" || currentSignalForLifecycle.provider_migration_status === "PROVIDER_UNAVAILABLE_REVIEW") {
+      console.log(`[scanner] skip lifecycle #${signal.signal_id} reason=provider_migration_review`);
+      continue;
+    }
 
     const currentPrice = Number(ticker.last);
-    const lifecycle = updateSignalLifecycle(signal, currentPrice);
+    const lifecycle = updateSignalLifecycle(currentSignalForLifecycle, currentPrice);
     lifecycleStats.backfilledEntryHit += lifecycle.backfilledEntryHit;
     lifecycleStats.backfilledTarget1Hit += lifecycle.backfilledTarget1Hit;
     if (lifecycle.fromStatus !== lifecycle.toStatus) {
@@ -96,7 +120,7 @@ async function scanOnce() {
       console.log(`[lifecycle] signal=${signal.signal_id} close_reason=${lifecycle.closeReason}`);
     }
     const events = lifecycle.events;
-    let currentSignal = signal;
+    let currentSignal = currentSignalForLifecycle;
     if (events.length) {
       const updated = getDb().prepare("SELECT * FROM signals WHERE signal_id = ?").get(signal.signal_id) as SignalRow;
       currentSignal = updated;

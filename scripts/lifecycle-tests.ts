@@ -27,7 +27,13 @@ const config: SystemConfig = {
   binanceBaseUrl: "https://data-api.binance.vision",
   binanceFallbackBaseUrl: "https://api.binance.com",
   binanceRequestTimeoutMs: 12000,
-  binanceMaxRetries: 3
+  binanceMaxRetries: 3,
+  maxProviderMigrationPriceDiffPct: 2,
+  universeMaxPairs: 120,
+  min24hQuoteVolumeUsdt: 10000000,
+  universeRefreshHours: 6,
+  telegramTimeoutMs: 10000,
+  telegramMaxRetries: 3
 };
 
 const now = "2026-07-16T02:00:00.000Z";
@@ -107,6 +113,14 @@ function mockSignal(overrides: Partial<SignalRow> = {}): SignalRow {
     unrealized_remaining_pnl_usdt: null,
     final_net_profit_usdt: null,
     final_net_profit_thb: null,
+    market_provider: "binance_spot",
+    provider_version: "binance_spot_v1",
+    source_symbol: "ZECUSDT",
+    provider_migrated_at: null,
+    migration_reference_price: null,
+    migration_new_price: null,
+    migration_price_diff_pct: null,
+    provider_migration_status: "PROVIDER_MIGRATED",
     ...overrides
   };
 }

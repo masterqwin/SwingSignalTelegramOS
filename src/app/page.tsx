@@ -25,7 +25,7 @@ export default async function OverviewPage() {
               <h1 className="text-xl font-bold">ภาพรวมสัญญาณ Active</h1>
               <p className="text-sm text-muted">ระบบแจ้งเตือนเท่านั้น ไม่มีการส่งคำสั่งซื้อขายอัตโนมัติ</p>
             </div>
-            <div className="text-sm font-semibold text-blue">Gate.io Spot / USDT</div>
+            <div className="text-sm font-semibold text-blue">Binance Spot / USDT</div>
           </div>
           <SignalTable signals={data.activeSignals} compact />
         </div>
