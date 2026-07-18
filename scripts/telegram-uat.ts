@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 async function main() {
-  const tempDb = path.join(os.tmpdir(), `swingsignal-telegram-uat-${Date.now()}.sqlite`);
+  const tempDb = path.join("run", `swingsignal-telegram-uat-${Date.now()}.sqlite`);
   process.env.DATABASE_PATH = tempDb;
   process.env.TELEGRAM_BOT_TOKEN = "";
   process.env.TELEGRAM_CHAT_ID = "";

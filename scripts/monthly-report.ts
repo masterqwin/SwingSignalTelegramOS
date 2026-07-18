@@ -2,6 +2,8 @@ import { calculatePortfolioHeat } from "../src/lib/analytics";
 import { initSchema, getDb } from "../src/lib/db";
 import { sendTelegramMessage } from "../src/lib/telegram";
 
+const LINE = "━━━━━━━━━━━━━━";
+
 function previousMonth(now = new Date()) {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
 }
@@ -22,46 +24,52 @@ export function buildMonthlyReport(date = previousMonth()) {
   const entryHits = rows.filter((row) => row.entry_hit_at).length;
   const tp1 = rows.filter((row) => row.target1_hit_at).length;
   const tp2 = rows.filter((row) => row.target2_hit_at).length;
-  const wins = closed.filter((row) => (row.final_net_profit_usdt || row.realized_net_profit_usdt || 0) > 0).length;
-  const losses = closed.filter((row) => (row.final_net_profit_usdt || row.realized_net_profit_usdt || 0) <= 0).length;
+  const recovery = rows.filter((row) => row.dca_level > 1 || row.parent_signal_id).length;
+  const cancel = rows.filter((row) => row.status === "CANCELLED" || row.close_reason === "CANCELLED" || row.close_reason === "TP2_TIMEOUT_CLOSED" || row.close_reason === "ENTRY_RETRACE_CLOSED").length;
+  const wins = closed.filter((row) => (row.final_net_profit_usdt || row.realized_net_profit_usdt || 0) > 0 || row.target1_hit_at).length;
+  const losses = closed.filter((row) => !row.target1_hit_at && (row.final_net_profit_usdt || row.realized_net_profit_usdt || 0) <= 0).length;
   const pnlUsdt = closed.reduce((sum, row) => sum + (row.final_net_profit_usdt || row.realized_net_profit_usdt || 0), 0);
   const usdthb = rows[0]?.usdthb_rate || 36.5;
   const heat = calculatePortfolioHeat();
   const topCoin = top(rows.map((row) => row.symbol));
-  const sampleLine = rows.length < 5 ? "Data sample is still limited; avoid strategy changes from this month alone." : "Rule-based analytics have enough samples for a basic monthly read.";
+  const summaryLine = rows.length < 5
+    ? "ข้อมูลเดือนนี้ยังน้อย ใช้เพื่อดูภาพรวม ไม่ควรปรับกลยุทธ์จากเดือนเดียว"
+    : "เดือนนี้มีข้อมูลพอสำหรับอ่านแนวโน้มเบื้องต้น ติดตามเหรียญและช่วงคะแนนที่ทำผลงานดีต่อ";
   const msg = [
-    `SwingSignal Monthly Report ${monthKey(date)}`,
-    "",
-    "Results",
-    `New signals: ${rows.length}`,
-    `Entry hit: ${entryHits} (${pct(entryHits, rows.length).toFixed(1)}%)`,
-    `Closed: ${closed.length}`,
-    `Win: ${wins} | Loss: ${losses}`,
+    "📊 รายงานประจำเดือน",
+    monthKey(date),
+    LINE,
+    "📈 ผลงาน",
+    `สัญญาณใหม่: ${rows.length}`,
+    `เข้าโซนซื้อ: ${entryHits} (${pct(entryHits, rows.length).toFixed(1)}%)`,
+    `TP1: ${tp1} (${pct(tp1, rows.length).toFixed(1)}%)`,
+    `TP2: ${tp2} (${pct(tp2, rows.length).toFixed(1)}%)`,
+    `Recovery: ${recovery}`,
+    `Cancel: ${cancel}`,
     `Win Rate: ${pct(wins, Math.max(1, wins + losses)).toFixed(1)}%`,
-    `Paper net P&L: ${pnlUsdt >= 0 ? "+" : ""}${pnlUsdt.toFixed(2)} USDT (~${(pnlUsdt * usdthb).toLocaleString("th-TH", { maximumFractionDigits: 0 })} THB)`,
-    "",
-    "Operation",
-    `TP1 success: ${pct(tp1, rows.length).toFixed(1)}%`,
-    `TP2 success: ${pct(tp2, rows.length).toFixed(1)}%`,
-    `Recovery used: ${rows.filter((row) => row.dca_level > 1).length}`,
-    `Timeout/Cancel: ${rows.filter((row) => row.status === "CANCELLED" || row.close_reason === "TP2_TIMEOUT_CLOSED").length}`,
-    "",
-    "Best",
-    `Top coin: ${topCoin || "N/A"}`,
-    `Best score band: ${bestBand(rows)}`,
-    `Best quality: ${top(rows.map((row) => row.quality_label).filter(Boolean)) || "N/A"}`,
-    "",
-    "Portfolio",
+    LINE,
+    "💰 ผลตอบแทนจำลอง",
+    `${pnlUsdt >= 0 ? "+" : ""}${pnlUsdt.toFixed(2)} USDT`,
+    `≈ ${(pnlUsdt * usdthb).toLocaleString("th-TH", { maximumFractionDigits: 0 })} บาท`,
+    LINE,
+    "🏆 ผลงานดีที่สุด",
+    `เหรียญ: ${topCoin || "N/A"}`,
+    `คะแนน: ${bestBand(rows)}`,
+    `คุณภาพ: ${top(rows.map((row) => row.quality_label).filter(Boolean)) || "N/A"}`,
+    LINE,
+    "💼 พอร์ต",
     `Active: ${heat.activeSetupCount}/${heat.maxActiveSignals}`,
-    `Active exposure: ${heat.activeExposureThb.toLocaleString("th-TH", { maximumFractionDigits: 0 })} THB`,
-    `Reserve: ${heat.reserveThb.toLocaleString("th-TH", { maximumFractionDigits: 0 })} THB`,
-    `Portfolio Heat: ${heat.heatPct.toFixed(1)}%`,
-    "",
-    "System",
-    "Provider: Binance Spot",
-    `Telegram pending: ${pendingCount()}`,
-    "",
-    `Summary: ${sampleLine}`
+    `Heat: ${heat.heatPct.toFixed(1)}%`,
+    `เงินสำรอง: ${heat.reserveThb.toLocaleString("th-TH", { maximumFractionDigits: 0 })} บาท`,
+    LINE,
+    "🤖 ระบบ",
+    "Binance Spot",
+    "Scanner: พร้อมทำงาน",
+    `Telegram: รอส่ง ${pendingCount()} รายการ`,
+    "Database: พร้อมใช้งาน",
+    LINE,
+    "สรุป",
+    summaryLine
   ].join("\n");
   return { reportMonth: monthKey(date), message: msg, rows: rows.length };
 }
