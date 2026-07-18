@@ -10,8 +10,15 @@ export default async function PerformancePage() {
     ["Cancelled", data.stats.cancelledCount],
     ["Target 1 Hit", data.stats.target1HitCount],
     ["Target 2 Hit", data.stats.target2HitCount],
-    ["Entry Hit Rate", `${data.stats.entryHitRate.toFixed(2)}%`],
+    ["Closed With Result", data.stats.closedCount],
+    ["Win", data.stats.winCount],
+    ["Loss", data.stats.lossCount],
+    ["Breakeven", data.stats.breakevenCount],
+    ["Unknown Result", data.stats.unknownResultCount],
     ["Win Rate", `${data.stats.winRate.toFixed(2)}%`],
+    ["Win Rate Denominator", data.stats.winRateDenominator],
+    ["Paper Net P&L", `${data.stats.paperNetPnlUsdt.toFixed(2)} USDT`],
+    ["Entry Hit Rate", `${data.stats.entryHitRate.toFixed(2)}%`],
     ["Avg Expected Return", `${data.stats.avgExpectedReturnPct.toFixed(2)}%`],
     ["Avg Time To Entry", `${data.stats.avgTimeToEntryHours.toFixed(1)} ชม.`],
     ["Avg Time To Target", `${data.stats.avgTimeToTargetHours.toFixed(1)} ชม.`],
@@ -25,11 +32,13 @@ export default async function PerformancePage() {
     ["Target 1 → Close", `${data.stats.avgTarget1ToCloseHours.toFixed(1)} ชม.`],
     ["DCA Level 1/2/3", `${data.stats.recoveryLevel1Count}/${data.stats.recoveryLevel2Count}/${data.stats.recoveryLevel3Count}`]
   ];
-
   return (
     <main className="grid gap-5 xl:grid-cols-[0.75fr_1.25fr]">
       <section className="rounded-lg border border-line bg-paper p-5 shadow-soft">
         <h1 className="text-xl font-bold">Performance</h1>
+        <p className="mt-1 text-sm text-muted">
+          Win Rate คำนวณจากผลกำไรสุทธิสุดท้ายของสัญญาณที่ปิดแล้วเท่านั้น และไม่รวมผลลัพธ์ที่ยังสรุปไม่ได้
+        </p>
         <div className="mt-4 space-y-3">
           {rows.map(([label, value]) => (
             <div key={label} className="flex justify-between border-b border-line pb-2 text-sm">
@@ -41,14 +50,16 @@ export default async function PerformancePage() {
       </section>
       <section className="rounded-lg border border-line bg-paper p-5 shadow-soft">
         <h2 className="text-lg font-bold">Performance by Score Band</h2>
+        <p className="mt-1 text-sm text-muted">Win Rate ใช้นิยามเดียวกับ Monthly Report</p>
         <div className="mt-5 table-scroll">
-          <table className="w-full min-w-[680px] text-left text-sm">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="text-xs uppercase text-muted">
               <tr className="border-b border-line">
                 <th className="py-3">Score Band</th>
                 <th>Total Signals</th>
                 <th>Entry Hit Rate</th>
                 <th>Win Rate</th>
+                <th>W/L/B/U</th>
                 <th>Avg Return</th>
               </tr>
             </thead>
@@ -59,6 +70,7 @@ export default async function PerformancePage() {
                   <td>{bucket.count}</td>
                   <td>{bucket.entryHitRate.toFixed(1)}%</td>
                   <td>{bucket.winRate.toFixed(1)}%</td>
+                  <td>{bucket.winCount}/{bucket.lossCount}/{bucket.breakevenCount}/{bucket.unknownResultCount}</td>
                   <td>{bucket.avgReturnPct.toFixed(2)}%</td>
                 </tr>
               ))}

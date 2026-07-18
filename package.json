@@ -18,7 +18,8 @@
     "provider:uat": "tsx scripts/provider-uat.ts",
     "telegram:uat": "tsx scripts/telegram-uat.ts",
     "report:monthly": "tsx scripts/monthly-report.ts",
-    "monthly-report:uat": "tsx scripts/monthly-report-uat.ts"
+    "monthly-report:uat": "tsx scripts/monthly-report-uat.ts",
+    "stats:uat": "tsx scripts/stats-uat.ts"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

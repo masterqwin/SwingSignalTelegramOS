@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { summarizeClosedSignalResults } from "./result-classifier";
 import type { SignalRow } from "./types";
 
 export function calculateStats() {
@@ -8,8 +9,7 @@ export function calculateStats() {
   const cancelledCount = signals.filter((s) => s.status === "CANCELLED").length;
   const target1HitCount = signals.filter((s) => s.target1_hit_at).length;
   const target2HitCount = signals.filter((s) => s.target2_hit_at).length;
-  const closed = signals.filter((s) => s.status === "CLOSED" || s.status === "CANCELLED" || s.status === "ENTRY_RETRACE_CLOSED" || s.status === "TP2_TIMEOUT_CLOSED");
-  const wins = closed.filter((s) => s.target1_hit_at).length;
+  const resultStats = summarizeClosedSignalResults(signals);
   const fullTargetClosedCount = signals.filter((s) => s.close_reason === "FULL_TARGET_CLOSED").length;
   const entryRetraceClosedCount = signals.filter((s) => s.close_reason === "ENTRY_RETRACE_CLOSED").length;
   const tp2TimeoutClosedCount = signals.filter((s) => s.close_reason === "TP2_TIMEOUT_CLOSED").length;
@@ -30,16 +30,24 @@ export function calculateStats() {
     target1HitCount,
     target2HitCount,
     entryHitRate: pct(entryHitCount, totalSignals),
-    winRate: pct(wins, closed.length),
+    closedCount: resultStats.closedCount,
+    winCount: resultStats.winCount,
+    lossCount: resultStats.lossCount,
+    breakevenCount: resultStats.breakevenCount,
+    unknownResultCount: resultStats.unknownResultCount,
+    winRateDenominator: resultStats.winRateDenominator,
+    winRate: resultStats.winRate,
+    decisiveWinRate: resultStats.decisiveWinRate,
+    paperNetPnlUsdt: resultStats.paperNetPnlUsdt,
     avgExpectedReturnPct,
     avgTimeToEntryHours,
     avgTimeToTargetHours,
     fullTargetClosedCount,
-    fullTargetClosedRate: pct(fullTargetClosedCount, profitClosed.length),
+    fullTargetClosedRate: pct(fullTargetClosedCount, resultStats.winRateDenominator),
     entryRetraceClosedCount,
-    entryRetraceClosedRate: pct(entryRetraceClosedCount, profitClosed.length),
+    entryRetraceClosedRate: pct(entryRetraceClosedCount, resultStats.winRateDenominator),
     tp2TimeoutClosedCount,
-    tp2TimeoutClosedRate: pct(tp2TimeoutClosedCount, profitClosed.length),
+    tp2TimeoutClosedRate: pct(tp2TimeoutClosedCount, resultStats.winRateDenominator),
     preTp1ReviewRequiredCount,
     avgTarget1NetProfitUsdt,
     avgFinalNetProfitUsdt,

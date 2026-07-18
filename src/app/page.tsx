@@ -14,10 +14,9 @@ export default async function OverviewPage() {
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={RadioTower} label="สัญญาณทั้งหมด" value={data.stats.totalSignals} helper="บันทึกแบบ paper tracking" />
         <MetricCard icon={Activity} label="Entry Hit Rate" value={`${data.stats.entryHitRate.toFixed(1)}%`} helper={`${data.stats.entryHitCount} signals เข้าโซน`} />
-        <MetricCard icon={ShieldCheck} label="Win Rate จำลอง" value={`${data.stats.winRate.toFixed(1)}%`} helper="นับจาก target plan ที่ปิดแล้ว" />
+        <MetricCard icon={ShieldCheck} label="Win Rate จำลอง" value={`${data.stats.winRate.toFixed(1)}%`} helper={`${data.stats.winCount}/${data.stats.lossCount}/${data.stats.breakevenCount} จาก Final P&L`} />
         <MetricCard icon={Banknote} label="Portfolio Heat" value={`${heat.heatPct.toFixed(1)}%`} helper={`Active ${heat.activeExposureThb.toLocaleString("th-TH")} บาท`} />
       </section>
-
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-lg border border-line bg-paper p-5 shadow-soft">
           <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -29,7 +28,6 @@ export default async function OverviewPage() {
           </div>
           <SignalTable signals={data.activeSignals} compact />
         </div>
-
         <div className="rounded-lg border border-line bg-paper p-5 shadow-soft">
           <h2 className="text-lg font-bold">แผนเงินทุน</h2>
           <div className="mt-4 space-y-4 text-sm">
@@ -50,7 +48,6 @@ export default async function OverviewPage() {
           </div>
         </div>
       </section>
-
       <section className="rounded-lg border border-line bg-paper p-5 shadow-soft">
         <h2 className="mb-4 text-lg font-bold">Lifecycle ล่าสุด</h2>
         <div className="space-y-3">

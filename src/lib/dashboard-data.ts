@@ -2,6 +2,7 @@ import { getSystemConfig } from "./config";
 import { getDb, initSchema } from "./db";
 import { calculateStats } from "./stats";
 import { calculatePortfolioHeat, getCoinQualityGrade } from "./analytics";
+import { summarizeClosedSignalResults } from "./result-classifier";
 import type { SignalEventRow, SignalRow, SignalStatus } from "./types";
 
 export async function getDashboardData() {
@@ -45,58 +46,48 @@ export function getCoinRanking() {
   initSchema();
   const rows = getDb()
     .prepare(
-      `SELECT symbol,
-        COUNT(*) as total,
-        SUM(CASE WHEN entry_hit_at IS NOT NULL THEN 1 ELSE 0 END) as entryHits,
-        SUM(CASE WHEN target1_hit_at IS NOT NULL THEN 1 ELSE 0 END) as target1Hits,
-        SUM(CASE WHEN target2_hit_at IS NOT NULL THEN 1 ELSE 0 END) as target2Hits,
-        SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END) as cancelled,
-        AVG(((target2 - entry_high) / entry_high) * 100) as avgReturnPct,
-        AVG(CASE WHEN entry_hit_at IS NOT NULL THEN (julianday(entry_hit_at) - julianday(created_at)) * 24 END) as avgTimeToEntryHours,
-        AVG(CASE WHEN target1_hit_at IS NOT NULL THEN (julianday(target1_hit_at) - julianday(COALESCE(entry_hit_at, created_at))) * 24 END) as avgTimeToTargetHours
-      FROM signals WHERE is_debug = 0 GROUP BY symbol ORDER BY target2Hits DESC, target1Hits DESC, total DESC`
+      `SELECT * FROM signals WHERE is_debug = 0 ORDER BY symbol ASC, created_at DESC`
     )
-    .all() as Array<{
-      symbol: string;
-      total: number;
-      entryHits: number;
-      target1Hits: number;
-      target2Hits: number;
-      cancelled: number;
-      avgReturnPct: number | null;
-      avgTimeToEntryHours: number | null;
-      avgTimeToTargetHours: number | null;
-    }>;
-  return rows.map((row) => {
-    const entryHitRate = row.total ? (row.entryHits / row.total) * 100 : 0;
-    const target1HitRate = row.total ? (row.target1Hits / row.total) * 100 : 0;
-    const target2HitRate = row.total ? (row.target2Hits / row.total) * 100 : 0;
-    const cancelRate = row.total ? (row.cancelled / row.total) * 100 : 0;
-    const winRate = target1HitRate;
-    const avgReturnPct = row.avgReturnPct ?? 0;
+    .all() as SignalRow[];
+  const bySymbol = new Map<string, SignalRow[]>();
+  for (const row of rows) bySymbol.set(row.symbol, [...(bySymbol.get(row.symbol) || []), row]);
+  return [...bySymbol.entries()].map(([symbol, signals]) => {
+    const total = signals.length;
+    const entryHits = signals.filter((row) => row.entry_hit_at).length;
+    const target1Hits = signals.filter((row) => row.target1_hit_at).length;
+    const target2Hits = signals.filter((row) => row.target2_hit_at).length;
+    const cancelled = signals.filter((row) => row.status === "CANCELLED").length;
+    const resultStats = summarizeClosedSignalResults(signals);
+    const avgReturnPct = total ? signals.reduce((sum, row) => sum + ((row.target2 - row.entry_high) / row.entry_high) * 100, 0) / total : 0;
+    const entryTimeRows = signals.filter((row) => row.entry_hit_at);
+    const targetTimeRows = signals.filter((row) => row.target1_hit_at);
+    const cancelRate = total ? (cancelled / total) * 100 : 0;
     return {
-      ...row,
+      symbol,
+      total,
+      entryHits,
+      target1Hits,
+      target2Hits,
+      cancelled,
       avgReturnPct,
-      avgTimeToEntryHours: row.avgTimeToEntryHours ?? 0,
-      avgTimeToTargetHours: row.avgTimeToTargetHours ?? 0,
-      entryHitRate,
-      target1HitRate,
-      target2HitRate,
+      avgTimeToEntryHours: average(entryTimeRows.map((row) => hoursBetween(row.created_at, row.entry_hit_at!))),
+      avgTimeToTargetHours: average(targetTimeRows.map((row) => hoursBetween(row.entry_hit_at || row.created_at, row.target1_hit_at!))),
+      entryHitRate: pct(entryHits, total),
+      target1HitRate: pct(target1Hits, total),
+      target2HitRate: pct(target2Hits, total),
       cancelRate,
-      winRate,
-      qualityGrade: getCoinQualityGrade({ total: row.total, winRate, cancelRate, avgReturnPct })
+      winRate: resultStats.winRate,
+      winCount: resultStats.winCount,
+      lossCount: resultStats.lossCount,
+      breakevenCount: resultStats.breakevenCount,
+      unknownResultCount: resultStats.unknownResultCount,
+      qualityGrade: getCoinQualityGrade({ total, winRate: resultStats.winRate, cancelRate, avgReturnPct })
     };
-  });
+  }).sort((a, b) => b.winRate - a.winRate || b.target2Hits - a.target2Hits || b.total - a.total);
 }
 
 function getScoreBuckets() {
-  const signals = getDb().prepare("SELECT score, entry_hit_at, target1_hit_at, target2, entry_high FROM signals WHERE is_debug = 0").all() as Array<{
-    score: number;
-    entry_hit_at: string | null;
-    target1_hit_at: string | null;
-    target2: number;
-    entry_high: number;
-  }>;
+  const signals = getDb().prepare("SELECT * FROM signals WHERE is_debug = 0").all() as SignalRow[];
   return [
     makeBucket("85-89", signals.filter((s) => s.score >= 85 && s.score <= 89)),
     makeBucket("90-94", signals.filter((s) => s.score >= 90 && s.score <= 94)),
@@ -104,15 +95,31 @@ function getScoreBuckets() {
   ];
 }
 
-function makeBucket(label: string, rows: Array<{ entry_hit_at: string | null; target1_hit_at: string | null; target2: number; entry_high: number }>) {
+function makeBucket(label: string, rows: SignalRow[]) {
   const entryHits = rows.filter((row) => row.entry_hit_at).length;
-  const wins = rows.filter((row) => row.target1_hit_at).length;
+  const resultStats = summarizeClosedSignalResults(rows);
   const avgReturn = rows.length ? rows.reduce((sum, row) => sum + ((row.target2 - row.entry_high) / row.entry_high) * 100, 0) / rows.length : 0;
   return {
     label,
     count: rows.length,
-    entryHitRate: rows.length ? (entryHits / rows.length) * 100 : 0,
-    winRate: rows.length ? (wins / rows.length) * 100 : 0,
+    entryHitRate: pct(entryHits, rows.length),
+    winRate: resultStats.winRate,
+    winCount: resultStats.winCount,
+    lossCount: resultStats.lossCount,
+    breakevenCount: resultStats.breakevenCount,
+    unknownResultCount: resultStats.unknownResultCount,
     avgReturnPct: avgReturn
   };
+}
+
+function pct(value: number, total: number) {
+  return total > 0 ? (value / total) * 100 : 0;
+}
+
+function average(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function hoursBetween(a: string, b: string) {
+  return (new Date(b).getTime() - new Date(a).getTime()) / 36e5;
 }

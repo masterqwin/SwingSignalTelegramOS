@@ -1,5 +1,6 @@
 import { calculatePortfolioHeat } from "../src/lib/analytics";
 import { initSchema, getDb } from "../src/lib/db";
+import { summarizeClosedSignalResults } from "../src/lib/result-classifier";
 import { sendTelegramMessage } from "../src/lib/telegram";
 
 const LINE = "━━━━━━━━━━━━━━";
@@ -20,37 +21,46 @@ export function buildMonthlyReport(date = previousMonth()) {
   const start = date.toISOString();
   const end = nextMonth(date).toISOString();
   const rows = db.prepare("SELECT * FROM signals WHERE is_debug = 0 AND created_at >= ? AND created_at < ?").all(start, end) as any[];
-  const closed = rows.filter((row) => row.closed_at || ["CLOSED","CANCELLED","ENTRY_RETRACE_CLOSED","TP2_TIMEOUT_CLOSED"].includes(row.status));
   const entryHits = rows.filter((row) => row.entry_hit_at).length;
   const tp1 = rows.filter((row) => row.target1_hit_at).length;
   const tp2 = rows.filter((row) => row.target2_hit_at).length;
   const recovery = rows.filter((row) => row.dca_level > 1 || row.parent_signal_id).length;
-  const cancel = rows.filter((row) => row.status === "CANCELLED" || row.close_reason === "CANCELLED" || row.close_reason === "TP2_TIMEOUT_CLOSED" || row.close_reason === "ENTRY_RETRACE_CLOSED").length;
-  const wins = closed.filter((row) => (row.final_net_profit_usdt || row.realized_net_profit_usdt || 0) > 0 || row.target1_hit_at).length;
-  const losses = closed.filter((row) => !row.target1_hit_at && (row.final_net_profit_usdt || row.realized_net_profit_usdt || 0) <= 0).length;
-  const pnlUsdt = closed.reduce((sum, row) => sum + (row.final_net_profit_usdt || row.realized_net_profit_usdt || 0), 0);
+  const recoverySuccess = rows.filter((row) => (row.dca_level > 1 || row.parent_signal_id) && (row.final_net_profit_usdt || 0) > 0).length;
+  const cancel = rows.filter((row) => row.status === "CANCELLED" || row.close_reason === "CANCELLED").length;
+  const timeout = rows.filter((row) => row.close_reason === "TP2_TIMEOUT_CLOSED" || row.status === "TP2_TIMEOUT_CLOSED").length;
+  const resultStats = summarizeClosedSignalResults(rows);
   const usdthb = rows[0]?.usdthb_rate || 36.5;
   const heat = calculatePortfolioHeat();
   const topCoin = top(rows.map((row) => row.symbol));
-  const summaryLine = rows.length < 5
-    ? "ข้อมูลเดือนนี้ยังน้อย ใช้เพื่อดูภาพรวม ไม่ควรปรับกลยุทธ์จากเดือนเดียว"
-    : "เดือนนี้มีข้อมูลพอสำหรับอ่านแนวโน้มเบื้องต้น ติดตามเหรียญและช่วงคะแนนที่ทำผลงานดีต่อ";
+  const summaryLine = resultStats.winRateDenominator === 0
+    ? "ยังไม่มีสัญญาณปิดที่คำนวณผลลัพธ์ได้ ใช้รายงานนี้เพื่อดูจำนวนงานของระบบเท่านั้น"
+    : "Win Rate คำนวณจากกำไรสุทธิสุดท้ายของสัญญาณที่ปิดแล้วเท่านั้น";
   const msg = [
     "📊 รายงานประจำเดือน",
     monthKey(date),
     LINE,
     "📈 ผลงาน",
-    `สัญญาณใหม่: ${rows.length}`,
-    `เข้าโซนซื้อ: ${entryHits} (${pct(entryHits, rows.length).toFixed(1)}%)`,
-    `TP1: ${tp1} (${pct(tp1, rows.length).toFixed(1)}%)`,
-    `TP2: ${tp2} (${pct(tp2, rows.length).toFixed(1)}%)`,
-    `Recovery: ${recovery}`,
-    `Cancel: ${cancel}`,
-    `Win Rate: ${pct(wins, Math.max(1, wins + losses)).toFixed(1)}%`,
+    `• สัญญาณใหม่: ${rows.length}`,
+    `• เข้าโซนซื้อ: ${entryHits} (${pct(entryHits, rows.length).toFixed(1)}%)`,
+    `• ปิดรอบแล้ว: ${resultStats.closedCount}`,
+    `• ชนะ: ${resultStats.winCount}`,
+    `• แพ้: ${resultStats.lossCount}`,
+    `• เสมอตัว: ${resultStats.breakevenCount}`,
+    `• ยังสรุปผลไม่ได้: ${resultStats.unknownResultCount}`,
+    `• Win Rate: ${resultStats.winRate.toFixed(1)}%`,
+    LINE,
+    "⚙️ การทำงานของแผน",
+    `• TP1 สำเร็จ: ${pct(tp1, rows.length).toFixed(1)}%`,
+    `• TP2 สำเร็จ: ${pct(tp2, rows.length).toFixed(1)}%`,
+    `• Recovery ใช้: ${recovery} ครั้ง`,
+    `• Recovery สำเร็จ: ${pct(recoverySuccess, recovery).toFixed(1)}%`,
+    `• Cancel: ${cancel}`,
+    `• Timeout: ${timeout}`,
     LINE,
     "💰 ผลตอบแทนจำลอง",
-    `${pnlUsdt >= 0 ? "+" : ""}${pnlUsdt.toFixed(2)} USDT`,
-    `≈ ${(pnlUsdt * usdthb).toLocaleString("th-TH", { maximumFractionDigits: 0 })} บาท`,
+    `• กำไรสุทธิรวม: ${resultStats.paperNetPnlUsdt >= 0 ? "+" : ""}${resultStats.paperNetPnlUsdt.toFixed(2)} USDT`,
+    `• ประมาณ: ${resultStats.paperNetPnlUsdt >= 0 ? "+" : ""}${(resultStats.paperNetPnlUsdt * usdthb).toLocaleString("th-TH", { maximumFractionDigits: 0 })} บาท`,
+    "ทุกอย่างเป็น Paper Tracking ไม่ใช่กำไรเงินจริง",
     LINE,
     "🏆 ผลงานดีที่สุด",
     `เหรียญ: ${topCoin || "N/A"}`,
@@ -71,7 +81,7 @@ export function buildMonthlyReport(date = previousMonth()) {
     "สรุป",
     summaryLine
   ].join("\n");
-  return { reportMonth: monthKey(date), message: msg, rows: rows.length };
+  return { reportMonth: monthKey(date), message: msg, rows: rows.length, resultStats };
 }
 
 async function main() {
@@ -112,8 +122,8 @@ function bestBand(rows: any[]) {
   const bands = [["85-89", 85, 89], ["90-94", 90, 94], ["95-100", 95, 100]] as const;
   return bands.map(([label, min, max]) => {
     const bandRows = rows.filter((row) => row.score >= min && row.score <= max);
-    const wins = bandRows.filter((row) => row.target1_hit_at).length;
-    return { label, rate: pct(wins, bandRows.length) };
+    const resultStats = summarizeClosedSignalResults(bandRows);
+    return { label, rate: resultStats.winRate };
   }).sort((a, b) => b.rate - a.rate)[0]?.label || "N/A";
 }
 if (process.argv[1]?.endsWith("monthly-report.ts")) {
